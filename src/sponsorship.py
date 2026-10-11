@@ -83,13 +83,18 @@ class SponsorshipDB:
                 rec.years.add(row[year_col].strip())
         self.files.append(path.name)
 
-    def lookup(self, company: str, aliases: list[str] | None = None) -> dict:
-        """-> {"status": "no_data" | "not_found" | "sponsor" | "zero_approvals", ...}"""
+    def lookup(self, company: str, aliases: list[str] | None = None, e_verify: str | None = None) -> dict:
+        """-> {"status": "no_data" | "not_found" | "sponsor" | "zero_approvals", "e_verify": ..., ...}
+
+        e_verify (yes / no / unknown) is not in the USCIS export; it comes from the company's `e_verify` field in
+        config.yaml, filled in by hand (e.g. from the E-Verify employer search). It matters for STEM OPT.
+        """
+        ev = {"e_verify": e_verify or "unknown"}
         if not self.loaded:
-            return {"status": "no_data"}
+            return {"status": "no_data", **ev}
         for name in [company, *(aliases or [])]:
             rec = self.records.get(normalize_employer(name))
             if rec:
-                return {"status": "sponsor" if rec.approvals > 0 else "zero_approvals",
+                return {"status": "sponsor" if rec.approvals > 0 else "zero_approvals", **ev,
                         "approvals": rec.approvals, "years": sorted(rec.years), "matched": sorted(rec.names)[:3]}
-        return {"status": "not_found"}
+        return {"status": "not_found", **ev}

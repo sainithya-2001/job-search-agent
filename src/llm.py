@@ -204,8 +204,9 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int, pricing: dict) -
 
 
 def estimate_tokens(text: str) -> int:
-    """Rough, deliberately high token estimate (~3.5 chars/token) for pre-run cost estimates."""
-    return int(len(text) / 3.5) + 1
+    """Rough token estimate (~3 chars/token) for pre-run cost estimates. Calibrated against the first scoring run,
+    where ~3.5 chars/token came in about 12% under actual input tokens."""
+    return int(len(text) / 3) + 1
 
 
 def get_llm(cfg: dict) -> LLMProvider:

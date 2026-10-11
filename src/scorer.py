@@ -66,30 +66,75 @@ def job_prompt(job) -> str:
             f"{' (remote)' if job['remote'] else ''}\n\nPOSTING\n{job['description']}")
 
 
-def location_rank(location: str, tiers: list[dict]) -> int:
-    """Index of the first location_priority tier that matches (0 = most preferred)."""
+TIER_ORDER = {"startup": 0, "growth": 1, "big_tech": 2}
+
+
+def location_rank(location: str, tiers: list[dict], remote: bool = False) -> int:
+    """Rank of the first location_priority tier that matches (lower = preferred; equal ranks tie)."""
+    text = f"{location or ''}{' remote' if remote else ''}"
     for i, tier in enumerate(tiers):
-        if any(re.search(p, location or "", re.I) for p in tier["patterns"]):
-            return i
-    return len(tiers)
+        if any(re.search(p, text, re.I) for p in tier["patterns"]):
+            return tier.get("rank", i)
+    return max((t.get("rank", i) for i, t in enumerate(tiers)), default=0) + 1
 
 
-def select_jobs(rows, cfg: dict, limit: int) -> list:
-    """Most relevant first: role-family priority, then location priority, then newest; capped per company."""
-    families = {f["name"]: i for i, f in enumerate(cfg["filters"]["role_families"])}
-    tiers = cfg["preferences"]["location_priority"]
-    cap = cfg["scoring"].get("max_per_company", 3)
-    ordered = sorted(rows, key=lambda r: (families.get(r["role_hint"], 99),
-                                          location_rank(r["location"], tiers),
-                                          -(datetime.fromisoformat(r["posted_at"]).timestamp() if r["posted_at"] else 0)))
-    picked, per_company = [], {}
+def company_tiers(cfg: dict) -> dict[str, str]:
+    return {c["name"]: c.get("tier", "unknown") for c in cfg["companies"]}
+
+
+def tier_rank(company: str, tiers_by_company: dict[str, str]) -> int:
+    return TIER_ORDER.get(tiers_by_company.get(company, "unknown"), len(TIER_ORDER))
+
+
+def _posted_ts(r) -> float:
+    return datetime.fromisoformat(r["posted_at"]).timestamp() if r["posted_at"] else 0.0
+
+
+def _cap_per_company(ordered, limit: int, cap: int, per_company: dict | None = None) -> list:
+    per_company = {} if per_company is None else per_company
+    picked = []
     for r in ordered:
+        if len(picked) == limit:
+            break
         if per_company.get(r["company"], 0) < cap:
             picked.append(r)
             per_company[r["company"]] = per_company.get(r["company"], 0) + 1
-        if len(picked) == limit:
-            break
     return picked
+
+
+def select_jobs(rows, cfg: dict, limit: int) -> list:
+    """Most relevant first: role-family priority, company tier, location priority, newest; capped per company."""
+    families = {f["name"]: i for i, f in enumerate(cfg["filters"]["role_families"])}
+    locs, tiers = cfg["preferences"]["location_priority"], company_tiers(cfg)
+    ordered = sorted(rows, key=lambda r: (families.get(r["role_hint"], 99), tier_rank(r["company"], tiers),
+                                          location_rank(r["location"], locs, bool(r["remote"])), -_posted_ts(r)))
+    return _cap_per_company(ordered, limit, cfg["scoring"].get("max_per_company", 3))
+
+
+def select_mix(rows, cfg: dict) -> tuple[list, list[str]]:
+    """Pick jobs per scoring.mix bucket (e.g. 5 Solutions/FDE, 5 Consultant/Eval, ...), only from the allowed
+    company tiers. Within a bucket: tier, location priority, newest. Returns (jobs, shortfall notes).
+    A bucket with too few jobs is reported, not topped up from other buckets."""
+    mix = cfg["scoring"]["mix"]
+    locs, tiers = cfg["preferences"]["location_priority"], company_tiers(cfg)
+    allowed = set(mix["tiers"])
+    cap, per_company = cfg["scoring"].get("max_per_company", 3), {}
+    picked, notes = [], []
+    for bucket in mix["buckets"]:
+        pool = [r for r in rows if r["role_hint"] in bucket["families"] and tiers.get(r["company"]) in allowed]
+        pool.sort(key=lambda r: (tier_rank(r["company"], tiers), location_rank(r["location"], locs, bool(r["remote"])),
+                                 -_posted_ts(r)))
+        got = _cap_per_company(pool, bucket["n"], cap, per_company)
+        if len(got) < bucket["n"]:
+            notes.append(f"{bucket['name']}: only {len(got)} of {bucket['n']} available")
+        picked += [dict(r) | {"bucket": bucket["name"]} for r in got]
+    return picked, notes
+
+
+def result_sort_key(row: dict, cfg: dict):
+    """Final ranking: fit_score, then company tier (startup > growth > big_tech), then location priority."""
+    return (-row["fit_score"], tier_rank(row["company"], company_tiers(cfg)),
+            location_rank(row["location"], cfg["preferences"]["location_priority"], bool(row.get("remote"))))
 
 
 @dataclass
@@ -124,44 +169,54 @@ def score_jobs(jobs, system: str, llm: LLMProvider, cfg: dict, store, sponsor_db
                est: Estimate) -> RunResult:
     pricing = cfg["llm"].get("pricing", {})
     threshold, cap = cfg["scoring"]["escalate_threshold"], cfg["scoring"]["max_run_cost_usd"]
-    aliases = {c["name"]: c.get("uscis_names", []) for c in cfg["companies"]}
+    companies = {c["name"]: c for c in cfg["companies"]}
     res = RunResult()
-    fast_each = est.fast_cost / max(est.calls, 1)
+    # Budget guard: before each call, project its cost as the larger of 2x the estimate and the most
+    # expensive call of that tier seen so far, so an underestimate can't push spend past the cap.
+    fast_est = est.fast_cost / max(est.calls, 1)
+    worst_seen = {"fast": 0.0, "strong": 0.0}
+
+    def call_cost(r) -> float:
+        return cost_usd(r.model, r.input_tokens, r.output_tokens, pricing) or 0.0
 
     for i, job in enumerate(jobs):
-        if res.spent + fast_each > cap:
+        if res.spent + max(2 * fast_est, worst_seen["fast"]) > cap:
             res.stopped_early = f"budget cap ${cap:.2f} reached before job {i + 1}"
             break
         prompt = job_prompt(job)
         fast = llm.generate_json(prompt, ScoredJob, tier="fast", system=system)
-        calls = [fast]
-        final = fast
+        worst_seen["fast"] = max(worst_seen["fast"], call_cost(fast))
+        calls, final = [fast], fast
         if fast.data.fit_score >= threshold:
-            if res.spent + (cost_usd(fast.model, fast.input_tokens, fast.output_tokens, pricing) or 0) \
-                    + est.strong_cost_each[i] > cap:
+            projected = max(2 * est.strong_cost_each[i], worst_seen["strong"])
+            if res.spent + call_cost(fast) + projected > cap:
                 res.stopped_early = f"budget cap ${cap:.2f}: kept fast-tier score for job {i + 1}, stopped after it"
             else:
                 final = llm.generate_json(prompt, ScoredJob, tier="strong", system=system)
+                worst_seen["strong"] = max(worst_seen["strong"], call_cost(final))
                 calls.append(final)
-        job_cost = sum(cost_usd(c.model, c.input_tokens, c.output_tokens, pricing) or 0.0 for c in calls)
+        job_cost = sum(call_cost(c) for c in calls)
         res.spent += job_cost
         res.calls += len(calls)
 
         s: ScoredJob = final.data
-        uscis = sponsor_db.lookup(job["company"], aliases.get(job["company"]))
+        company = companies.get(job["company"], {})
+        uscis = sponsor_db.lookup(job["company"], company.get("uscis_names"), company.get("e_verify"))
         row = {
             "job_id": job["id"], "fit_score": s.fit_score, "fast_score": fast.data.fit_score,
             "escalated": int(final is not fast), "model": final.model, "role_family": s.role_family,
             "matched_skills": json.dumps(s.matched_skills), "gaps": json.dumps(s.gaps),
             "sponsorship_signal": s.sponsorship_signal.signal, "sponsorship_quote": s.sponsorship_signal.quote,
-            "uscis_status": uscis["status"], "uscis_approvals": uscis.get("approvals"),
+            "uscis_status": uscis["status"], "uscis_approvals": uscis.get("approvals"), "e_verify": uscis["e_verify"],
             "is_staffing_firm": int(s.is_staffing_firm), "seniority_ok": int(s.seniority_ok),
             "one_line_reason": s.one_line_reason,
             "input_tokens": sum(c.input_tokens for c in calls), "output_tokens": sum(c.output_tokens for c in calls),
             "cost_usd": job_cost, "scored_at": datetime.now(timezone.utc).isoformat(),
         }
         store.save_score(row)
-        res.scored.append({**row, "company": job["company"], "title": job["title"], "location": job["location"]})
+        res.scored.append({**row, "company": job["company"], "title": job["title"], "location": job["location"],
+                           "remote": job["remote"], "tier": company.get("tier", "unknown"),
+                           "bucket": job["bucket"] if "bucket" in job.keys() else None})
         tag = f"{fast.data.fit_score}->{s.fit_score} (strong)" if final is not fast else f"{s.fit_score}"
         print(f"  [{i + 1:2d}/{len(jobs)}] {job['company'][:14]:14s} {job['title'][:52]:52s} {tag:>16s}  ${job_cost:.4f}")
         if res.stopped_early:

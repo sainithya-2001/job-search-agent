@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS scores (
     sponsorship_quote  TEXT,
     uscis_status       TEXT,                   -- sponsor / zero_approvals / not_found / no_data
     uscis_approvals    INTEGER,
+    e_verify           TEXT,                   -- yes / no / unknown (from config.yaml, filled by hand)
     is_staffing_firm   INTEGER,
     seniority_ok       INTEGER,
     one_line_reason    TEXT,
@@ -75,6 +76,18 @@ class Store:
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        # Lightweight migration: add columns introduced after a table was first created.
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(scores)")}
+        if "e_verify" not in cols:
+            with self.conn:
+                self.conn.execute("ALTER TABLE scores ADD COLUMN e_verify TEXT DEFAULT 'unknown'")
+
+    def jobs_by_status(self, status: str) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM jobs WHERE status=?", (status,)).fetchall()
+
+    def scored_rows(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT j.*, s.* FROM scores s JOIN jobs j ON j.id = s.job_id ORDER BY s.fit_score DESC").fetchall()
 
     def save(self, jobs: list[Job], role_hints: dict[str, str] | None = None) -> list[Job]:
         """Insert jobs, skipping duplicates. Returns only the jobs that were actually new."""

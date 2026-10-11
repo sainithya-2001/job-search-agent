@@ -13,11 +13,16 @@ Find relevant jobs that sponsor visas, score them against her resume, tailor a r
 5. AI Evaluation / AI Quality roles
 6. Backup: Data Analyst, Business Analyst, Analytics Engineer
 
-Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, remote OK. Preference order (config.yaml preferences.location_priority): Atlanta GA > California > Texas > anywhere in US.
+Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, remote OK. Preference order (config.yaml preferences.location_priority): Atlanta GA = US-Remote > California > Texas > anywhere in US.
+Remote roles count only if US-remote; remote roles limited to other countries/regions, or to states other than GA/CA/TX, are excluded.
+
+Companies: prioritize startups and lesser-known strong AI companies (Series A–D or profitable, ~20–1,000 employees, known investors, shipping AI products), plus a few Atlanta-based ones. Each company in config.yaml has tier (startup | growth | big_tech) and e_verify (yes | no | unknown, filled by hand).
 
 ## Hard filters (exclude)
 - Staffing agencies, body shops, C2C/contract-only, "W2 through vendor" postings
 - Postings that say "no sponsorship", "must be a US citizen", "security clearance required"
+- Export-control / US-person requirements: "export controlled", ITAR, EAR, "U.S. person", "permanent resident", "green card" (except positive mentions like "green card sponsorship")
+- Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps (even with AI in the title); Staff, Principal, Lead, Director. Senior is kept.
 - Duplicates (same company + normalized title)
 
 ## Stack
@@ -81,6 +86,8 @@ job-agent/
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
 - Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Sonnet 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
 - Cross-check sponsorship with sponsorship.py (USCIS Employer Data Hub CSV; match on normalized employer name).
+- Ranking of results: fit_score, then company tier (startup > growth > big_tech), then location priority.
+- Cost control: print an estimate before each run and the actual cost after; never exceed scoring.max_run_cost_usd.
 - Done when: python main.py score ranks jobs and stores scores.
 
 ### Phase 3 — Tailor (with guardrail)
@@ -90,7 +97,7 @@ job-agent/
 - Headline: may change per job. It is an optional role label plus skills from master_resume.yaml. The role label must come from config.yaml tailoring.headline_role_labels for the job's role family (AI Engineer, Applied AI, AI Solutions Engineer, Forward Deployed Engineer, AI Consultant, AI Evaluation, Data Analyst, Business Analyst, Analytics Engineer); no other labels. No seniority words anywhere in the headline (Senior/Lead/Principal/Staff). Never change experience-section titles; print them exactly as stored.
 - Years of experience: always "4+ years". Never write "5+".
 - Never use a master_resume.yaml field whose conflict is unresolved, or anything marked pending/outdated.
-- Before starting Phase 3, ask Nithya again: which unsupported skills to drop (Anthropic, Azure, CI/CD, AI-evaluation skills) and which cloud to keep (Azure vs AWS).
+- Skills: every skill in master_resume.yaml is confirmed (2026-10-11), including Anthropic API, AWS, Azure, CI/CD, and the AI-evaluation skills. Tailoring selects only the skills relevant to each job, never the full list.
 - Render to output/resumes/{company}_{role}.pdf.
 - Done when: python main.py tailor <job_id> produces a PDF and a verification report.
 

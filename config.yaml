@@ -19,7 +19,15 @@ scoring:
   max_per_company: 3        # diversity cap when picking which jobs to score
   max_run_cost_usd: 0.50    # refuse to start if the worst-case estimate exceeds this; stop mid-run if actual does
   # Output tokens assumed per call for the estimate (includes thinking, which bills as output).
-  est_output_tokens: {fast: 1500, strong: 3000}
+  est_output_tokens: {fast: 600, strong: 1200}
+  # `python main.py score --mix`: pick n jobs per bucket, only from these company tiers.
+  mix:
+    tiers: [startup, growth]
+    buckets:
+      - {name: solutions_fde,      families: [ai_solutions, forward_deployed], n: 5}
+      - {name: consultant_eval,    families: [ai_consultant, ai_eval],         n: 5}
+      - {name: analyst_analytics,  families: [analyst_backup],                 n: 5}
+      - {name: ai_engineer,        families: [ai_engineer],                    n: 5}
 
 tailoring:
   # Headline = optional role label + skills from master_resume.yaml. The label must come from the list for the
@@ -34,63 +42,111 @@ tailoring:
   headline_forbidden_words: [Senior, Lead, Principal, Staff]
 
 preferences:
-  # Job-location preference, highest first. Used to rank jobs, not to filter them (filters.us_only does that).
-  # Each tier matches if any pattern hits the job's location string (case-insensitive regex).
+  # Job-location preference. Lower rank = preferred; equal ranks tie. Used to rank jobs, not to filter them.
+  # A tier matches if any pattern hits the location string (case-insensitive regex). When the ATS flags the
+  # job as remote, " remote" is appended to the string before matching, so US-Remote catches flagged jobs too.
   location_priority:
-    - {name: "Atlanta, GA", patterns: ['\batlanta\b', ',\s*GA\b', '\bgeorgia\b']}
-    - {name: California,    patterns: ['\bcalifornia\b', ',\s*CA\b', '\bsan francisco\b', '\bbay area\b', '\blos angeles\b', '\bsan diego\b', '\bsan jose\b', '\bpalo alto\b', '\bmountain view\b', '\bmenlo park\b', '\bsunnyvale\b', '\bsan mateo\b', '\bredwood city\b', '\boakland\b', '\bfoster city\b', '\bsanta clara\b', '\bUS-CA-']}
-    - {name: Texas,         patterns: ['\btexas\b', ',\s*TX\b', '\baustin\b', '\bdallas\b', '\bhouston\b', '\bsan antonio\b']}
-    - {name: Anywhere in US, patterns: ['.*']}     # fallback: any job that passed the US-only filter
+    - {name: "Atlanta, GA", rank: 0, patterns: ['\batlanta\b', ',\s*GA\b', '\bgeorgia\b']}
+    - {name: US-Remote,     rank: 0, patterns: ['(?=.*\bremote\b)(?=.*(\bUS\b|\bUSA\b|\bU\.S\.|\bunited states\b|\bus-based\b))']}
+    - {name: California,    rank: 1, patterns: ['\bcalifornia\b', ',\s*CA\b', '\bsan francisco\b', '\bbay area\b', '\blos angeles\b', '\bsan diego\b', '\bsan jose\b', '\bpalo alto\b', '\bmountain view\b', '\bmenlo park\b', '\bsunnyvale\b', '\bsan mateo\b', '\bredwood city\b', '\boakland\b', '\bfoster city\b', '\bsanta clara\b', '\bUS-CA-']}
+    - {name: Texas,         rank: 2, patterns: ['\btexas\b', ',\s*TX\b', '\baustin\b', '\bdallas\b', '\bhouston\b', '\bsan antonio\b']}
+    - {name: Anywhere in US, rank: 3, patterns: ['.*']}     # fallback: any job that passed the US-only filter
 
 # Boards to pull from. `slug` is the company's identifier in the ATS URL:
 #   greenhouse: boards-api.greenhouse.io/v1/boards/{slug}/jobs
 #   lever:      api.lever.co/v0/postings/{slug}
 #   ashby:      api.ashbyhq.com/posting-api/job-board/{slug}
-# All slugs below were verified live on 2026-10-11.
 companies:
-  # --- Greenhouse ---
-  - {name: Anthropic,        ats: greenhouse, slug: anthropic}
-  - {name: Scale AI,         ats: greenhouse, slug: scaleai}
-  - {name: Databricks,       ats: greenhouse, slug: databricks}
-  - {name: Glean,            ats: greenhouse, slug: gleanwork}
-  - {name: Together AI,      ats: greenhouse, slug: togetherai}
-  - {name: Snorkel AI,       ats: greenhouse, slug: snorkelai}
-  - {name: C3 AI,            ats: greenhouse, slug: c3iot}
-  - {name: Dataiku,          ats: greenhouse, slug: dataiku}
-  - {name: Cresta,           ats: greenhouse, slug: cresta}
-  - {name: CoreWeave,        ats: greenhouse, slug: coreweave}
-  - {name: SambaNova,        ats: greenhouse, slug: sambanovasystems}
-  - {name: Datadog,          ats: greenhouse, slug: datadog}
-  - {name: MongoDB,          ats: greenhouse, slug: mongodb}
-  - {name: Elastic,          ats: greenhouse, slug: elastic}
-  - {name: Stripe,           ats: greenhouse, slug: stripe}
-  - {name: Intercom,         ats: greenhouse, slug: intercom}
-  # --- Ashby ---
-  - {name: OpenAI,           ats: ashby, slug: openai}
-  - {name: Cohere,           ats: ashby, slug: cohere}
-  - {name: Perplexity,       ats: ashby, slug: perplexity}
-  - {name: Harvey,           ats: ashby, slug: harvey}
-  - {name: Sierra,           ats: ashby, slug: sierra}
-  - {name: Decagon,          ats: ashby, slug: decagon}
-  - {name: Writer,           ats: ashby, slug: writer}
-  - {name: ElevenLabs,       ats: ashby, slug: elevenlabs}
-  - {name: Deepgram,         ats: ashby, slug: deepgram}
-  - {name: LangChain,        ats: ashby, slug: langchain}
-  - {name: Modal,            ats: ashby, slug: modal}
-  - {name: Notion,           ats: ashby, slug: notion}
-  - {name: Ramp,             ats: ashby, slug: ramp}
-  - {name: Snowflake,        ats: ashby, slug: snowflake}
-  - {name: Hex,              ats: ashby, slug: hex}
-  - {name: Abridge,          ats: ashby, slug: abridge}
-  - {name: Cognition,        ats: ashby, slug: cognition}
-  - {name: Replit,           ats: ashby, slug: replit}
-  - {name: Cursor,           ats: ashby, slug: cursor}
-  - {name: Baseten,          ats: ashby, slug: baseten}
-  # --- Lever ---
-  - {name: Palantir,         ats: lever, slug: palantir}
-  - {name: Level AI,         ats: lever, slug: levelai}
-  - {name: Hive,             ats: lever, slug: hive}
-  - {name: Zoox,             ats: lever, slug: zoox}
+  # Rebuilt 2026-10-11 to favor startups and lesser-known strong AI companies. Every slug was verified live
+  # on that date (board returns jobs AND belongs to the intended company). tier: startup | growth | big_tech.
+  # Tiers are a judgment call from funding stage / size, not verified per company — edit freely.
+  # e_verify: yes | no | unknown — fill in by hand from the E-Verify employer search (matters for STEM OPT).
+  # Optional per company: uscis_names: [legal names] when the USCIS employer name differs.
+  # --- startup (roughly Series A-B / small teams) ---
+  - {name: Rogo,                    ats: ashby,      slug: rogo,                tier: startup,  e_verify: unknown}
+  - {name: LangChain,               ats: ashby,      slug: langchain,           tier: startup,  e_verify: unknown}
+  - {name: LlamaIndex,              ats: ashby,      slug: llamaindex,          tier: startup,  e_verify: unknown}
+  - {name: Modal,                   ats: ashby,      slug: modal,               tier: startup,  e_verify: unknown}
+  - {name: Braintrust,              ats: ashby,      slug: braintrust,          tier: startup,  e_verify: unknown}
+  - {name: Arize AI,                ats: greenhouse, slug: arizeai,             tier: startup,  e_verify: unknown}
+  - {name: Galileo,                 ats: greenhouse, slug: galileo,             tier: startup,  e_verify: unknown}
+  - {name: Patronus AI,             ats: ashby,      slug: patronus,            tier: startup,  e_verify: unknown}
+  - {name: Composio,                ats: ashby,      slug: composio,            tier: startup,  e_verify: unknown}
+  - {name: Reducto,                 ats: ashby,      slug: reducto,             tier: startup,  e_verify: unknown}
+  - {name: Extend,                  ats: ashby,      slug: extend,              tier: startup,  e_verify: unknown}
+  - {name: Unstructured,            ats: ashby,      slug: unstructured,        tier: startup,  e_verify: unknown}
+  - {name: Eve,                     ats: greenhouse, slug: eve,                 tier: startup,  e_verify: unknown}
+  - {name: Eudia,                   ats: greenhouse, slug: eudia,               tier: startup,  e_verify: unknown}
+  - {name: Rillet,                  ats: ashby,      slug: rillet,              tier: startup,  e_verify: unknown}
+  - {name: Tennr,                   ats: ashby,      slug: tennr,               tier: startup,  e_verify: unknown}
+  - {name: Assort Health,           ats: ashby,      slug: assorthealth,        tier: startup,  e_verify: unknown}
+  - {name: Vapi,                    ats: ashby,      slug: vapi,                tier: startup,  e_verify: unknown}
+  - {name: Bland,                   ats: ashby,      slug: bland,               tier: startup,  e_verify: unknown}
+  - {name: Unify,                   ats: ashby,      slug: unify,               tier: startup,  e_verify: unknown}
+  - {name: Giga,                    ats: ashby,      slug: gigaml,              tier: startup,  e_verify: unknown}
+  - {name: Factory,                 ats: ashby,      slug: factory,             tier: startup,  e_verify: unknown}
+  - {name: OpenEvidence,            ats: ashby,      slug: openevidence,        tier: startup,  e_verify: unknown}
+  - {name: Numeric,                 ats: ashby,      slug: numeric,             tier: startup,  e_verify: unknown}
+  - {name: Tavus,                   ats: ashby,      slug: tavus,               tier: startup,  e_verify: unknown}
+  # --- growth (later stage / larger) ---
+  - {name: Sierra,                  ats: ashby,      slug: sierra,              tier: growth,   e_verify: unknown}
+  - {name: Decagon,                 ats: ashby,      slug: decagon,             tier: growth,   e_verify: unknown}
+  - {name: Harvey,                  ats: ashby,      slug: harvey,              tier: growth,   e_verify: unknown}
+  - {name: Glean,                   ats: greenhouse, slug: gleanwork,           tier: growth,   e_verify: unknown}
+  - {name: ElevenLabs,              ats: ashby,      slug: elevenlabs,          tier: growth,   e_verify: unknown}
+  - {name: Cohere,                  ats: ashby,      slug: cohere,              tier: growth,   e_verify: unknown}
+  - {name: Perplexity,              ats: ashby,      slug: perplexity,          tier: growth,   e_verify: unknown}
+  - {name: Cursor,                  ats: ashby,      slug: cursor,              tier: growth,   e_verify: unknown}
+  - {name: Cognition,               ats: ashby,      slug: cognition,           tier: growth,   e_verify: unknown}
+  - {name: Writer,                  ats: ashby,      slug: writer,              tier: growth,   e_verify: unknown}
+  - {name: Hex,                     ats: ashby,      slug: hex,                 tier: growth,   e_verify: unknown}
+  - {name: Abridge,                 ats: ashby,      slug: abridge,             tier: growth,   e_verify: unknown}
+  - {name: Ambience Healthcare,     ats: ashby,      slug: ambiencehealthcare,  tier: growth,   e_verify: unknown}
+  - {name: Cresta,                  ats: greenhouse, slug: cresta,              tier: growth,   e_verify: unknown}
+  - {name: Together AI,             ats: greenhouse, slug: togetherai,          tier: growth,   e_verify: unknown}
+  - {name: Baseten,                 ats: ashby,      slug: baseten,             tier: growth,   e_verify: unknown}
+  - {name: Fireworks AI,            ats: ashby,      slug: fireworks,           tier: growth,   e_verify: unknown}
+  - {name: Snorkel AI,              ats: greenhouse, slug: snorkelai,           tier: growth,   e_verify: unknown}
+  - {name: EliseAI,                 ats: ashby,      slug: eliseai,             tier: growth,   e_verify: unknown}
+  - {name: Ironclad,                ats: ashby,      slug: ironcladhq,          tier: growth,   e_verify: unknown}
+  - {name: Handshake,               ats: ashby,      slug: handshake,           tier: growth,   e_verify: unknown}
+  - {name: Invisible Technologies,  ats: greenhouse, slug: invisibletech,       tier: growth,   e_verify: unknown}
+  - {name: Deepgram,                ats: ashby,      slug: deepgram,            tier: growth,   e_verify: unknown}
+  - {name: Vanta,                   ats: ashby,      slug: vanta,               tier: growth,   e_verify: unknown}
+  # --- Atlanta-based ---
+  - {name: Florence Healthcare,     ats: greenhouse, slug: florencehealthcare,  tier: growth,   e_verify: unknown}
+  - {name: Fullstory,               ats: ashby,      slug: fullstory,           tier: growth,   e_verify: unknown}
+  - {name: Salesloft,               ats: greenhouse, slug: salesloft,           tier: growth,   e_verify: unknown}
+  - {name: Calendly,                ats: greenhouse, slug: calendly,            tier: growth,   e_verify: unknown}
+  - {name: OneTrust,                ats: greenhouse, slug: onetrust,            tier: growth,   e_verify: unknown}
+  # --- big_tech (frontier labs and large public companies) ---
+  - {name: OpenAI,                  ats: ashby,      slug: openai,              tier: big_tech, e_verify: unknown}
+  - {name: Anthropic,               ats: greenhouse, slug: anthropic,           tier: big_tech, e_verify: unknown}
+  - {name: Scale AI,                ats: greenhouse, slug: scaleai,             tier: big_tech, e_verify: unknown}
+  - {name: CoreWeave,               ats: greenhouse, slug: coreweave,           tier: big_tech, e_verify: unknown}
+  - {name: Snowflake,               ats: ashby,      slug: snowflake,           tier: big_tech, e_verify: unknown}
+  - {name: Datadog,                 ats: greenhouse, slug: datadog,             tier: big_tech, e_verify: unknown}
+
+jsearch:
+  # Aggregator source (RapidAPI). Runs only when enabled AND JSEARCH_API_KEY is set in .env.
+  enabled: true
+  date_posted: week          # all | today | 3days | week | month
+  pages_per_query: 1         # ~10 jobs per page; each query = 1 API request
+  queries:
+    - AI Engineer
+    - Applied AI Engineer
+    - Forward Deployed Engineer
+    - AI Solutions Engineer
+    - AI Consultant
+    - AI Evaluation
+    - Analytics Engineer
+    - Data Analyst AI
+  # Employers dropped before anything else (staffing agencies, body shops, marketplaces).
+  # No generic "consulting" pattern: it would drop BCG (BCG X is a target). IT-services firms are listed by name.
+  exclude_employers: ['staffing', 'recruit', '\btalent\b', 'infotech', '\bsolutions,? (inc|llc)\b',
+                      'teksystems', 'robert half', 'randstad', 'insight global', 'kforce', 'apex systems', 'cybercoders',
+                      '\bdice\b', 'jobot', 'motion recruitment', 'mercor', '\bturing\b', 'toptal', 'hcl', 'infosys',
+                      'wipro', 'cognizant', 'tata consultancy', 'capgemini', 'accenture']
 
 filters:
   # Role families in priority order. A title is kept if it matches any pattern;
@@ -111,20 +167,22 @@ filters:
       patterns: ['\bdata analyst\b', '\bbusiness analyst\b', '\banalytics engineer\b']
 
   # Titles dropped regardless of family: too senior for 0–5 yrs, or not a full-time IC role.
-  # "senior" is intentionally NOT here — some "Senior" roles ask for 3–5 yrs; Phase 2 judges seniority.
-  title_exclude: ['\b(staff|principal|distinguished|director|head of|vp|vice president|chief|manager|lead)\b', '\bintern(ship)?\b']
+  # "Senior" is intentionally NOT here — kept per Nithya; Phase 2 judges seniority from the posting.
+  title_exclude: ['\b(staff|principal|distinguished|director|head of|vp|vice president|chief|manager|lead)\b', '\bintern(ship)?\b',
+                  # Engineering specialties outside the target roles — dropped even when the title says AI.
+                  '\bfront[- ]?end\b', '\bfull[- ]?stack\b', '\binfrastructure\b', '\binfra\b', '\bplatform\b',
+                  '\bsecurity\b', '\bappsec\b', '\bsystems? engineer', '\bsre\b', '\bsite reliability\b', '\bdevops\b']
 
-  # Engineering specialties dropped UNLESS the title also matches `ai_title_terms`
-  # ("Backend Engineer" is dropped; "Backend Engineer, LLM Platform" is kept).
-  title_exclude_unless_ai: ['\bfront[- ]?end\b', '\bmobile\b', '\bios\b', '\bandroid\b', '\bembedded\b', '\bfirmware\b',
-                            '\bback[- ]?end\b', '\binfrastructure\b', '\binfra\b']
+  # Other specialties dropped UNLESS the title also matches `ai_title_terms`
+  # ("Backend Engineer" is dropped; "Backend Engineer, LLM" is kept).
+  title_exclude_unless_ai: ['\bmobile\b', '\bios\b', '\bandroid\b', '\bembedded\b', '\bfirmware\b', '\bback[- ]?end\b']
   ai_title_terms: ['\bai\b', '\bml\b', '\bmachine learning\b', '\bllms?\b', '\bgen ?ai\b']
 
   # Description phrases that disqualify a posting (sponsorship, citizenship, clearance, staffing/contract).
   exclude_phrases:
     - '\b(unable|not able|cannot|can ?not|will not|won''t|do not|does not|don''t|are not able) (to )?(provide |offer |support )?(visa |immigration |h-?1b )?sponsor'
     - '\bnot (require|need) (visa |immigration )?sponsorship'
-    - '\bwithout (the need for )?(visa |immigration |current or future )?sponsorship'
+    - '\bwithout (the need for |requiring )?(any )?(visa |immigration |current or future |future )?(employer |company )?(visa )?sponsorship'
     - '\bno (visa )?sponsorship\b'
     - '\bsponsorship (is )?not (available|offered|provided)'
     - '\bmust be a u\.?s\.? citizen'
@@ -135,9 +193,21 @@ filters:
     - '\bcorp[- ]to[- ]corp\b'
     - '\bw-?2 through (a |our )?vendor'
     - '\bcontract[- ]only\b'
+    # Export control / US-person requirements. ITAR and EAR match case-sensitively ("ear", "year" don't count).
+    - '\bexport[- ]controlled\b'
+    - '(?-i:\bITAR\b)'
+    - '(?-i:\bEAR\b)'
+    - '\bU\.?S\.? persons?\b'
+    # Skipped when followed by sponsor/process/support, so "we support green card sponsorship" doesn't exclude a job.
+    - '\bpermanent residen(t|ts|cy)\b(?!\s*(sponsor|process|support|application))'
+    - '\bgreen[- ]cards?\b(?!\s*(sponsor|process|support|application))'
 
   # Employment types (from the ATS) that are dropped.
   exclude_employment_types: [contract, contractor, temporary, intern, internship]
 
-  # Keep only postings with at least one US (or plain "Remote") location.
+  # Keep only postings with at least one US location. Remote roles must be US-remote ("Remote - US",
+  # "Remote (United States)", "US-based remote", or remote + a US location). Remote roles limited to other
+  # countries/regions are dropped, and so are remote roles restricted to states outside remote_allowed_states.
+  # A bare "Remote" with no country is kept only if the posting text says US-remote.
   us_only: true
+  remote_allowed_states: [GA, CA, TX]

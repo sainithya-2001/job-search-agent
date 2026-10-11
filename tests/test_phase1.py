@@ -53,8 +53,9 @@ def test_too_senior_or_not_ic(jf, title):
     ("Frontend Forward Deployed Engineer", False),
     ("iOS Solutions Engineer", False),
     ("Solutions Engineer, Embedded", False),
-    ("Backend Engineer, LLM Platform", True),
-    ("Software Engineer, AI Infrastructure", True),
+    ("Backend Engineer, LLM", True),
+    ("Backend Engineer, LLM Platform", False),          # "platform" is excluded even with AI terms
+    ("Software Engineer, AI Infrastructure", False),    # so is "infrastructure"
     ("Senior Applied AI Engineer", True),     # Senior titles stay in
 ])
 def test_specialty_excluded_unless_ai(jf, title, keep):
@@ -64,6 +65,8 @@ def test_specialty_excluded_unless_ai(jf, title, keep):
 @pytest.mark.parametrize("desc", [
     "We are unable to sponsor visas for this role.",
     "Candidates must be authorized to work without sponsorship.",
+    "Must be authorized to work in the U.S. without the need for current or future employer sponsorship.",
+    "You must be authorized to work in the United States without the need for employer sponsorship",
     "Must be a U.S. citizen.",
     "Active TS/SCI clearance required.",
     "This is a C2C engagement.",
@@ -82,19 +85,57 @@ def test_contract_employment_type(jf):
     assert not jf.check(make_job(employment_type="Contract")).keep
 
 
-@pytest.mark.parametrize("loc,remote,ok", [
-    ("San Francisco, CA", False, True),
-    ("Remote - US", True, True),
-    ("Remote", True, True),
-    ("London, UK", False, False),
-    ("London; New York", False, True),       # any US location is enough
-    ("Remote in Canada", True, False),       # "in" must not read as Indiana
-    ("Toronto, ON", False, False),
-    ("", True, True),
-    ("", False, False),
+@pytest.mark.parametrize("loc,remote,desc,ok", [
+    ("San Francisco, CA", False, "", True),
+    ("Remote - US", True, "", True),
+    ("Remote (United States)", True, "", True),
+    ("US-based remote", True, "", True),
+    ("Remote - Atlanta, GA", True, "", True),
+    ("London, UK", False, "", False),
+    ("London; New York", False, "", True),             # any US location is enough
+    ("Remote in Canada", True, "", False),             # "in" must not read as Indiana
+    ("Remote - EMEA", True, "", False),
+    ("Remote - LATAM", True, "", False),
+    ("Remote - Colorado", True, "", False),            # remote restricted to a non-GA/CA/TX state
+    ("Remote (CA, NY)", True, "", True),               # CA allowed
+    ("Remote - TX", True, "", True),
+    ("Remote", True, "", False),                       # bare remote, country unknown
+    ("Remote", True, "This role is remote within the United States.", True),
+    ("Remote - US", True, "Candidates must reside in Colorado or Utah.", False),
+    ("Remote - US", True, "You must live in Georgia or Florida.", True),
+    ("US-CA-Menlo Park", False, "", True),
+    ("Toronto, ON", False, "", False),
+    ("", True, "", False),
+    ("", False, "", False),
 ])
-def test_us_location(loc, remote, ok):
-    assert JobFilter.is_us_location(loc, remote) is ok
+def test_location_rules(jf, loc, remote, desc, ok):
+    assert (jf.location_reason(make_job(location=loc, remote=remote, description=desc)) is None) is ok
+
+
+@pytest.mark.parametrize("title", ["Frontend AI Engineer", "Full-Stack Engineer, AI", "AI Platform Engineer",
+                                   "AI Infrastructure Engineer", "AI Security Engineer", "SRE, LLM", "DevOps AI Engineer",
+                                   "Systems Engineer, Enterprise AI", "Staff Solutions Engineer", "Director, AI Strategy"])
+def test_excluded_specialties_even_with_ai(jf, title):
+    assert not jf.check(make_job(title=title)).keep
+
+
+def test_senior_kept(jf):
+    assert jf.check(make_job(title="Senior Solutions Engineer")).keep
+
+
+@pytest.mark.parametrize("desc,excluded", [
+    ("This position requires access to export controlled information.", True),
+    ("Subject to ITAR regulations.", True),
+    ("Subject to EAR.", True),
+    ("Applicant must be a U.S. person.", True),
+    ("Must be a permanent resident.", True),
+    ("Green card holders only.", True),
+    ("We offer green card sponsorship after one year.", False),
+    ("We support permanent residency applications.", False),
+    ("Each year we hear from customers.", False),          # "ear"/"year" must not trigger EAR
+])
+def test_export_and_residency_phrases(jf, desc, excluded):
+    assert (not jf.check(make_job(description=desc)).keep) is excluded
 
 
 # --- store / dedupe --------------------------------------------------------

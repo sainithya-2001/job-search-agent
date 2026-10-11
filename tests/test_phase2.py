@@ -55,8 +55,8 @@ class FakeStore:
 
 
 class NoUSCIS:
-    def lookup(self, company, aliases=None):
-        return {"status": "no_data"}
+    def lookup(self, company, aliases=None, e_verify=None):
+        return {"status": "no_data", "e_verify": e_verify or "unknown"}
 
 
 # --- config / model consistency -----------------------------------------------
@@ -161,3 +161,81 @@ def test_uscis_utf16_tab_export_and_exact_match(tmp_path):
     assert db.lookup("Anthropic")["approvals"] == 150
     assert db.lookup("Hex")["status"] == "not_found"          # no prefix matching
     assert SponsorshipDB(tmp_path / "empty").lookup("Anthropic")["status"] == "no_data"
+
+
+def test_e_verify_defaults_unknown(tmp_path):
+    assert SponsorshipDB(tmp_path).lookup("Anthropic")["e_verify"] == "unknown"
+    assert SponsorshipDB(tmp_path).lookup("Anthropic", e_verify="yes")["e_verify"] == "yes"
+
+
+# --- tiers, mix, ranking -------------------------------------------------------------
+
+def test_every_company_has_tier_and_e_verify(cfg):
+    for c in cfg["companies"]:
+        assert c["tier"] in ("startup", "growth", "big_tech") and c["e_verify"] in ("yes", "no", "unknown"), c
+    assert {c["name"] for c in cfg["companies"] if c["tier"] == "big_tech"} >= \
+        {"OpenAI", "Anthropic", "Scale AI", "CoreWeave", "Snowflake", "Datadog"}
+
+
+def test_us_remote_ties_with_atlanta(cfg):
+    tiers = cfg["preferences"]["location_priority"]
+    assert location_rank("Remote - US", tiers) == location_rank("Atlanta, GA", tiers) == 0
+    assert location_rank("United States", tiers, remote=True) == 0      # ATS remote flag + US
+    assert location_rank("San Francisco, CA", tiers, remote=True) == 1  # remote flag but tied to a CA city
+
+
+def test_result_sort_fit_then_tier_then_location(cfg):
+    from src.scorer import result_sort_key
+    rows = [{"fit_score": 70, "company": "OpenAI", "location": "Atlanta, GA", "remote": 0},       # big_tech
+            {"fit_score": 70, "company": "Rogo", "location": "New York, NY", "remote": 0},        # startup, NY
+            {"fit_score": 70, "company": "LangChain", "location": "Remote - US", "remote": 1},   # startup, US-remote
+            {"fit_score": 80, "company": "Datadog", "location": "Austin, TX", "remote": 0}]
+    order = [r["company"] for r in sorted(rows, key=lambda r: result_sort_key(r, cfg))]
+    assert order == ["Datadog", "LangChain", "Rogo", "OpenAI"]
+
+
+def test_select_mix_buckets_tiers_and_shortfall(cfg):
+    from src.scorer import select_mix
+    rows = [job(1, "Rogo", "ai_solutions"), job(2, "Sierra", "forward_deployed"), job(3, "OpenAI", "ai_solutions"),
+            job(4, "LangChain", "ai_eval"), job(5, "Hex", "analyst_backup"), job(6, "Modal", "ai_engineer")]
+    picked, notes = select_mix(rows, cfg)
+    ids = {r["id"] for r in picked}
+    assert "j3" not in ids                                   # big_tech excluded from the mix
+    assert ids == {"j1", "j2", "j4", "j5", "j6"}
+    assert len(notes) == 4 and all("only" in n for n in notes)   # every bucket short of 5
+
+
+# --- skills gap ---------------------------------------------------------------------------
+
+def test_skills_gap_ignores_urls_company_name_and_departments():
+    from src.skills_gap import build_report
+    rows = [
+        {"company": "Anthropic", "gaps": "[]", "description":
+            "Requirements:\n- Kubernetes and TypeScript\n- Partner with Legal and Security\n"
+            "See https://writer.com/legal/notice. Anthropic recruiters only contact you from @anthropic.com"},
+        {"company": "Acme", "gaps": '["dbt"]', "description": "Qualifications: Python, Kubernetes, law firms experience"},
+    ]
+    _, table = build_report(rows, resume_text="Python, SQL", top_n=50)
+    by = {r["skill"]: r for r in table}
+    assert by["Kubernetes"]["jobs"] == 2 and by["Kubernetes"]["in_resume"] is False
+    assert by["Python"]["in_resume"] is True
+    assert by["Legal domain"]["jobs"] == 1                 # only "law firms", not the Legal department or the URL
+    assert "Anthropic / Claude API" not in by              # the company's own name doesn't count
+
+
+# --- JSearch ----------------------------------------------------------------------------
+
+def test_jsearch_parse_and_staffing_filter(cfg):
+    from src.sources import jsearch
+    payload = {"data": [
+        {"job_id": "a1", "employer_name": "Acme AI", "job_title": "AI Engineer", "job_city": "Atlanta",
+         "job_state": "GA", "job_country": "US", "job_is_remote": False, "job_apply_link": "u",
+         "job_description": "d", "job_posted_at_datetime_utc": "2026-10-01T00:00:00Z", "job_employment_type": "FULLTIME"},
+        {"job_id": "a2", "employer_name": "Best Staffing LLC", "job_title": "AI Engineer", "job_description": "d"},
+        {"job_id": "a3", "employer_name": "Boston Consulting Group", "job_title": "AI Consultant",
+         "job_is_remote": True, "job_country": "US", "job_description": "d"},
+    ]}
+    jobs, dropped = jsearch.parse(payload, cfg["jsearch"]["exclude_employers"])
+    assert dropped == 1 and [j.company for j in jobs] == ["Acme AI", "Boston Consulting Group"]
+    assert jobs[0].location == "Atlanta, GA, US" and jobs[0].id == "jsearch:a1"
+    assert jobs[1].location == "Remote - US" and jobs[1].remote
