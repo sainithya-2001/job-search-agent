@@ -197,6 +197,8 @@ def tailor_and_publish(job, store: Store, ctx: TailorContext, llm, cfg: dict, bu
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     fam, title = family_and_title(store, job)
+    # Checked before any LLM call: summaries are never generated, so a family without one can't be tailored.
+    select_summary(ctx.master, fam, title)
     verifier = Verifier(ctx.master, ctx.texts, ctx.tech, cfg, fam, title)
     sc = store.conn.execute("SELECT * FROM scores WHERE job_id=?", (job["id"],)).fetchone()
     res = tailor_job(job, sc, ctx.master, ctx.source, verifier, llm, cfg, budget_left=budget_left)

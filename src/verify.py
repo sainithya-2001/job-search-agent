@@ -93,6 +93,14 @@ def select_summary(master: dict, family: str, title: str) -> dict:
     raise ValueError(f"no approved summary for role family '{family}' / title '{title}'")
 
 
+def has_summary(master: dict, family: str, title: str) -> bool:
+    try:
+        select_summary(master, family, title)
+        return True
+    except ValueError:
+        return False
+
+
 def check_approved_summaries(master: dict, texts: dict[str, str], tech: dict[str, list[str]]) -> list[str]:
     """One-time check of the pre-approved summaries against ALL facts in the master resume.
     Returns findings (empty = every number and tool term appears somewhere in the master facts)."""

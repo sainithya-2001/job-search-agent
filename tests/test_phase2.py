@@ -328,8 +328,8 @@ def test_jsearch_runs_each_query_in_each_location(cfg):
     from src.sources import jsearch
     js = cfg["jsearch"]
     pairs = jsearch.requests_planned(js)
-    assert len(pairs) == len(js["queries"]) * 4
-    assert {loc["name"] for _, loc in pairs} == {"Atlanta, GA", "California", "Texas", "US remote"}
+    assert len(pairs) == len(js["queries"]) * 5
+    assert {loc["name"] for _, loc in pairs} == {"Atlanta, GA", "California", "Texas", "US remote", "Anywhere in US"}
     assert js["date_posted"] == "month"          # covers the 14-day window; the age filter does the rest
 
 
@@ -349,5 +349,13 @@ def test_jsearch_fetch_sends_location_and_remote_params(cfg):
             return await jsearch.fetch(c, js, "k")
     asyncio.run(go())
     assert [p["query"] for p in seen] == ["AI Engineer in Atlanta, GA", "AI Engineer in California",
-                                          "AI Engineer in Texas", "AI Engineer"]
-    assert seen[-1].get("work_from_home") == "true" and "work_from_home" not in seen[0]
+                                          "AI Engineer in Texas", "AI Engineer", "AI Engineer in United States"]
+    assert seen[3].get("work_from_home") == "true" and "work_from_home" not in seen[0]
+
+
+def test_restricted_remote_ranks_after_preferred_and_unrestricted_remote(cfg):
+    from src.scorer import job_location_rank
+    rank = lambda loc, desc="": job_location_rank({"location": loc, "remote": 1, "description": desc}, cfg)
+    assert rank("Remote - US") == 0 and rank("Remote - TX") == 2
+    assert rank("Remote - Colorado") == 3
+    assert rank("Remote - US", "You must reside in Colorado or Utah.") == 3     # looks US-remote, but restricted

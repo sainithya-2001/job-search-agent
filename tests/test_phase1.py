@@ -124,12 +124,12 @@ def test_contract_employment_type(jf):
     ("Remote in Canada", True, "", False),             # "in" must not read as Indiana
     ("Remote - EMEA", True, "", False),
     ("Remote - LATAM", True, "", False),
-    ("Remote - Colorado", True, "", False),            # remote restricted to a non-GA/CA/TX state
+    ("Remote - Colorado", True, "", True),             # any US state passes (ranked lower)
     ("Remote (CA, NY)", True, "", True),               # CA allowed
     ("Remote - TX", True, "", True),
     ("Remote", True, "", False),                       # bare remote, country unknown
     ("Remote", True, "This role is remote within the United States.", True),
-    ("Remote - US", True, "Candidates must reside in Colorado or Utah.", False),
+    ("Remote - US", True, "Candidates must reside in Colorado or Utah.", True),
     ("Remote - US", True, "You must live in Georgia or Florida.", True),
     ("US-CA-Menlo Park", False, "", True),
     ("Toronto, ON", False, "", False),
@@ -257,3 +257,39 @@ def test_ashby_parse_skips_unlisted():
     ]}
     jobs = ashby.parse("Acme", "acme", payload)
     assert len(jobs) == 1 and jobs[0].location == "SF; NYC"
+
+
+@pytest.mark.parametrize("title,family", [
+    ("Technical Program Manager", "program_product_manager"),
+    ("Program Manager, AI Deployments", "program_product_manager"),
+    ("Product Manager, Applied AI", "program_product_manager"),     # matched first, despite "applied ai"
+    ("Senior Product Manager", "program_product_manager"),
+    ("Analytics Manager", "program_product_manager"),
+    ("AI Manager", "program_product_manager"),
+    ("Data Manager", "program_product_manager"),
+    ("Solutions Manager", "program_product_manager"),
+    ("Engineering Program Manager", "program_product_manager"),
+    ("Product Manager, Engineering Productivity", "program_product_manager"),
+])
+def test_manager_roles_kept_in_new_family(jf, title, family):
+    r = jf.check(make_job(title=title))
+    assert r.keep and r.role_hint == family
+
+
+@pytest.mark.parametrize("title", ["Engineering Manager, AI", "Manager, Software Engineering", "AI Engineering Manager",
+                                   "Director of Product", "VP, Product", "Head of AI Programs",
+                                   "Account Manager", "Customer Success Manager"])
+def test_management_and_non_target_manager_titles_excluded(jf, title):
+    assert not jf.check(make_job(title=title)).keep
+
+
+@pytest.mark.parametrize("loc,desc,restricted", [
+    ("Remote - Colorado", "", True),
+    ("Remote - US", "Candidates must reside in Colorado or Utah.", True),
+    ("Remote (CA, NY)", "", False),                    # includes a preferred state
+    ("Remote - US", "", False),
+    ("Remote - Colorado; Remote - US", "", False),     # one segment open to the whole US
+    ("Denver, CO", "", False),                         # onsite: not a remote restriction
+])
+def test_remote_restricted_elsewhere(jf, loc, desc, restricted):
+    assert jf.remote_restricted_elsewhere(loc, True, desc) is restricted

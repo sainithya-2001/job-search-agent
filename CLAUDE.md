@@ -12,9 +12,10 @@ Find relevant jobs she is eligible for, score them against her resume, tailor a 
 4. AI Consultant / AI Strategist (in-house at product companies, or McKinsey QuantumBlack, BCG X)
 5. AI Evaluation / AI Quality roles
 6. Backup: Data Analyst, Business Analyst, Analytics Engineer
+7. Program / Product Manager: Program Manager, Technical Program Manager, Product Manager, Analytics Manager, AI / Data / Solutions Manager (role family program_product_manager, ranked last)
 
 Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, remote OK. Preference order (config.yaml preferences.location_priority): Atlanta GA = US-Remote > California > Texas > anywhere in US.
-Remote roles count only if US-remote; remote roles limited to other countries/regions, or to states other than GA/CA/TX, are excluded.
+Remote roles count only if US-remote; remote roles limited to other countries/regions are excluded. Remote roles restricted to any US state pass (relocation anywhere in the US is fine) but rank after GA/CA/TX and unrestricted US-remote.
 
 Companies: prioritize startups and lesser-known strong AI companies (Series A–D or profitable, ~20–1,000 employees, known investors, shipping AI products), plus a few Atlanta-based ones. Each company in config.yaml has tier (startup | growth | big_tech) and e_verify (yes | no | unknown, filled by hand).
 
@@ -23,7 +24,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
 - Postings that require US citizenship ("must be a US citizen", "US citizens only") or a security clearance
 - Sponsorship statements ("no sponsorship", "must be authorized to work without sponsorship") are NOT excluded (2026-10-11)
 - Export-control / US-person requirements: "export controlled", ITAR, EAR, "U.S. person", "permanent resident", "green card" (except positive mentions like "green card sponsorship")
-- Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps, network operations, chip design, hardware, mobile, iOS, Android (even with AI in the title); Staff, Principal, Lead, Director. Senior is kept.
+- Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps, network operations, chip design, hardware, mobile, iOS, Android (even with AI in the title); Staff, Principal, Lead, Director, VP, Head of, Engineering Manager. Senior is kept. Other "Manager" titles pass only if they match a role family (program_product_manager).
 - Duplicates (same company + normalized title)
 - Postings older than 14 days (filters.max_posting_age_days). Jobs with no reliable date are kept and treated as 4-14 days old (not fresh).
 
@@ -99,7 +100,7 @@ job-agent/
 ### Phase 3 — Tailor (with guardrail)
 - master_resume.yaml holds every bullet with an id. Tailoring may only select, reorder, and reword existing bullets and skills. No new tools, metrics, titles, dates, or employers.
 - verify.py: second LLM call + string checks. For each output bullet, cite the source bullet id. Reject and retry if any number, tool, or claim is not in the source.
-- Summary: never generated. Use the pre-approved summary in master_resume.yaml for the job's role family (sum_ai for AI roles, sum_analytics for Data Analyst / Analytics Engineer, sum_ba for Business Analyst).
+- Summary: never generated. Use the pre-approved summary in master_resume.yaml for the job's role family (sum_ai for AI roles, sum_analytics for Data Analyst / Analytics Engineer, sum_ba for Business Analyst). A role family with no approved summary (currently program_product_manager) is scored and ranked but never tailored until Nithya adds one.
 - One page max (enforced by rendering the PDF and counting pages; cut content only, never add). No two bullets about the same work (master_resume.yaml same_work_groups). For AI and analytics roles always include the required metric bullet (config.local.yaml tailoring.required_bullets). Apply the bullet preferences in tailoring.preferences. Optional experience (tailoring.optional_experience) may be dropped to fit one page. Include the Job-Search Agent project for all AI roles. Headline: at most 4 skills.
 - Coursework: pick the 4–6 courses most relevant to the job from master_resume.yaml; never list all of them.
 - Headline: may change per job. It is an optional role label plus skills from master_resume.yaml. The role label must come from config.yaml tailoring.headline_role_labels for the job's role family (AI Engineer, Applied AI, AI Solutions Engineer, Forward Deployed Engineer, AI Consultant, AI Evaluation, Data Analyst, Business Analyst, Analytics Engineer); no other labels. No seniority words anywhere in the headline (Senior/Lead/Principal/Staff). Never change experience-section titles; print them exactly as stored.

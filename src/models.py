@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 Source = Literal["greenhouse", "lever", "ashby", "jsearch"]
 # Must match the family names in config.yaml filters.role_families (tests enforce this), plus "other".
 RoleFamily = Literal["ai_engineer", "ai_solutions", "forward_deployed", "ai_consultant", "ai_eval",
-                     "analyst_backup", "other"]
+                     "analyst_backup", "program_product_manager", "other"]
 
 
 class Job(BaseModel):

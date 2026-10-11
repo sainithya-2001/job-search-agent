@@ -65,10 +65,14 @@ class JobFilter:
     def __init__(self, cfg: dict, us_hq_companies: set[str] | None = None, now: datetime | None = None):
         """cfg = config.yaml `filters`. us_hq_companies: names whose bare "Remote" jobs are kept."""
         flags = re.I
+        # Families are listed in PRIORITY order (used for ranking). Families with match_first: true are tried
+        # before the rest, so "Product Manager, Applied AI" is a program_product_manager role even though that
+        # family ranks last.
+        fams = sorted(cfg["role_families"], key=lambda f: not f.get("match_first", False))
         self.families = [
             (fam["name"], [re.compile(p, flags) for p in fam["patterns"]],
              [re.compile(p, flags) for p in fam.get("exclude", [])])
-            for fam in cfg["role_families"]
+            for fam in fams
         ]
         self.us_hq = us_hq_companies or set()
         self.max_age = cfg.get("max_posting_age_days")
@@ -79,7 +83,9 @@ class JobFilter:
         self.phrases = [re.compile(p, flags) for p in cfg.get("exclude_phrases", [])]
         self.bad_types = {t.lower() for t in cfg.get("exclude_employment_types", [])}
         self.us_only = cfg.get("us_only", True)
-        self.allowed_states = set(cfg.get("remote_allowed_states", ["GA", "CA", "TX"]))
+        # Remote roles restricted to any US state pass (Nithya will relocate anywhere in the US). These states only
+        # matter for ranking: remote roles restricted to other states rank after GA/CA/TX and unrestricted US-remote.
+        self.preferred_states = set(cfg.get("remote_preferred_states", ["GA", "CA", "TX"]))
 
     def role_family(self, title: str) -> str | None:
         for name, patterns, excludes in self.families:
@@ -88,12 +94,12 @@ class JobFilter:
         return None
 
     def _segment(self, seg: str) -> str:
-        """Classify one location segment: ok | remote_other_state | non_us | bare_remote | unknown."""
+        """Classify one location segment: ok | non_us | bare_remote | unknown."""
         states, generic = _states_in(seg), bool(_US_GENERIC.search(seg))
         city, non_us = bool(_US_CITIES.search(seg)), bool(_NON_US.search(seg))
         if _REMOTE.search(seg):
-            if states:                       # "Remote - Colorado", "Remote (CA, NY)"
-                return "ok" if states & self.allowed_states else "remote_other_state"
+            if states:                       # "Remote - Colorado", "Remote (CA, NY)": any US state passes
+                return "ok"
             if generic or city:              # "Remote - US", "Remote (United States)", "Remote / NYC"
                 return "ok"
             return "non_us" if non_us else "bare_remote"
@@ -110,19 +116,26 @@ class JobFilter:
         if "bare_remote" in kinds and (job.company in self.us_hq or _DESC_US_REMOTE.search(job.description or "")):
             kinds = ["ok" if k == "bare_remote" else k for k in kinds]
         if "ok" in kinds:
-            # Remote-only jobs can still be restricted to particular states in the posting text.
-            remote_only = job.remote and all(_REMOTE.search(s) for s in segments)
-            m = _DESC_STATE_RESTRICTION.search(job.description or "") if remote_only else None
-            if m:
-                states = _states_in(m.group(1))
-                if states and not states & self.allowed_states and not _US_GENERIC.search(m.group(1)):
-                    return f"location: remote restricted to {', '.join(sorted(states))}"
             return None
-        if "remote_other_state" in kinds:
-            return "location: remote restricted to non-GA/CA/TX state"
         if "bare_remote" in kinds:
             return "location: remote, country not stated"
         return "location: not US"
+
+    def remote_restricted_elsewhere(self, location: str, remote: bool, description: str = "") -> bool:
+        """True for a remote-only role limited to US states, none of which is preferred (GA/CA/TX): e.g.
+        "Remote - Colorado", or "Remote - US" whose posting says "must reside in Colorado or Utah". Used for ranking
+        only; such roles pass the filters."""
+        segments = [s.strip() for s in re.split(r"[;|/\n]| or ", location or "") if s.strip()]
+        if not (remote or any(_REMOTE.search(s) for s in segments)) or not segments \
+                or not all(_REMOTE.search(s) for s in segments):
+            return False
+        per_segment = [_states_in(s) for s in segments]
+        # A segment naming no state ("Remote - US") is open to the whole US, unless the posting text restricts it.
+        states = set() if any(not st for st in per_segment) else set().union(*per_segment)
+        m = _DESC_STATE_RESTRICTION.search(description or "")
+        if m and not _US_GENERIC.search(m.group(1)):
+            states |= _states_in(m.group(1))
+        return bool(states) and not states & self.preferred_states
 
     def check(self, job: Job) -> FilterResult:
         family = self.role_family(job.title)

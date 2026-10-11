@@ -45,6 +45,8 @@ role_family — pick exactly one:
 - ai_consultant: AI strategy / consulting / transformation
 - ai_eval: AI evaluation, model quality, evals
 - analyst_backup: Data Analyst, Business Analyst, Analytics Engineer
+- program_product_manager: Program Manager, Technical Program Manager, Product Manager, Analytics Manager,
+  AI / Data / Solutions Manager
 - other: none of the above (e.g. general software engineering, research, sales)
 
 sponsorship_signal (report what the posting says; it never affects fit_score):
@@ -80,6 +82,24 @@ def location_rank(location: str, tiers: list[dict], remote: bool = False) -> int
     return max((t.get("rank", i) for i, t in enumerate(tiers)), default=0) + 1
 
 
+_FILTERS: dict[int, object] = {}
+
+
+def job_location_rank(row, cfg: dict) -> int:
+    """location_rank, except remote roles restricted to non-preferred states (filters.remote_preferred_states) are
+    pushed back to preferences.restricted_remote_rank, even when the location string reads like US-remote."""
+    prefs = cfg["preferences"]
+    remote = bool(row["remote"] if "remote" in row.keys() else False)
+    rank = location_rank(row["location"], prefs["location_priority"], remote)
+    if "filters" in cfg:
+        from src.filters import JobFilter
+        jf = _FILTERS.setdefault(id(cfg["filters"]), JobFilter(cfg["filters"]))
+        desc = row["description"] if "description" in row.keys() else ""
+        if jf.remote_restricted_elsewhere(row["location"], remote, desc or ""):
+            rank = max(rank, prefs.get("restricted_remote_rank", 3))
+    return rank
+
+
 def company_tiers(cfg: dict) -> dict[str, str]:
     return {c["name"]: c.get("tier", "unknown") for c in cfg["companies"]}
 
@@ -107,9 +127,9 @@ def _cap_per_company(ordered, limit: int, cap: int, per_company: dict | None = N
 def select_jobs(rows, cfg: dict, limit: int) -> list:
     """Most relevant first: role-family priority, company tier, location priority, newest; capped per company."""
     families = {f["name"]: i for i, f in enumerate(cfg["filters"]["role_families"])}
-    locs, tiers = cfg["preferences"]["location_priority"], company_tiers(cfg)
+    tiers = company_tiers(cfg)
     ordered = sorted(rows, key=lambda r: (families.get(r["role_hint"], 99), tier_rank(r["company"], tiers),
-                                          location_rank(r["location"], locs, bool(r["remote"])), -_posted_ts(r)))
+                                          job_location_rank(r, cfg), -_posted_ts(r)))
     return _cap_per_company(ordered, limit, cfg["scoring"].get("max_per_company", 3))
 
 
@@ -118,13 +138,13 @@ def select_mix(rows, cfg: dict) -> tuple[list, list[str]]:
     company tiers. Within a bucket: tier, location priority, newest. Returns (jobs, shortfall notes).
     A bucket with too few jobs is reported, not topped up from other buckets."""
     mix = cfg["scoring"]["mix"]
-    locs, tiers = cfg["preferences"]["location_priority"], company_tiers(cfg)
+    tiers = company_tiers(cfg)
     allowed = set(mix["tiers"])
     cap, per_company = cfg["scoring"].get("max_per_company", 3), {}
     picked, notes = [], []
     for bucket in mix["buckets"]:
         pool = [r for r in rows if r["role_hint"] in bucket["families"] and tiers.get(r["company"]) in allowed]
-        pool.sort(key=lambda r: (tier_rank(r["company"], tiers), location_rank(r["location"], locs, bool(r["remote"])),
+        pool.sort(key=lambda r: (tier_rank(r["company"], tiers), job_location_rank(r, cfg),
                                  -_posted_ts(r)))
         got = _cap_per_company(pool, bucket["n"], cap, per_company)
         if len(got) < bucket["n"]:
@@ -162,7 +182,7 @@ def result_sort_key(row: dict, cfg: dict, now: datetime | None = None):
     (yes > unclear > no), then company tier (startup > growth > big_tech), then location priority."""
     return (-row["fit_score"], 0 if is_fresh(row, cfg, now) else 1, sponsor_rank(row),
             tier_rank(row["company"], company_tiers(cfg)),
-            location_rank(row["location"], cfg["preferences"]["location_priority"], bool(row.get("remote"))))
+            job_location_rank(row, cfg))
 
 
 def _preferences(cfg: dict, names: list[str], now: datetime | None) -> list[tuple]:
@@ -299,7 +319,7 @@ def score_jobs(jobs, system: str, llm: LLMProvider, cfg: dict, store, sponsor_db
         }
         store.save_score(row)
         res.scored.append({**row, "company": job["company"], "title": job["title"], "location": job["location"],
-                           "remote": job["remote"], "posted_at": job["posted_at"], "tier": company.get("tier", "unknown"),
+                           "remote": job["remote"], "posted_at": job["posted_at"], "description": job["description"], "tier": company.get("tier", "unknown"),
                            "bucket": job["bucket"] if "bucket" in job.keys() else None})
         tag = f"{fast.data.fit_score}->{s.fit_score} (strong)" if final is not fast else f"{s.fit_score}"
         if not quiet:

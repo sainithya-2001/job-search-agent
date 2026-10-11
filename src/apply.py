@@ -184,7 +184,7 @@ def next_job_id(store: Store, cfg: dict) -> str | None:
     from src.scorer import rank_results
 
     rows = store.conn.execute(
-        "SELECT a.job_id, j.company, j.location, j.remote, j.posted_at, s.fit_score, s.sponsorship_signal "
+        "SELECT a.job_id, j.company, j.location, j.remote, j.posted_at, j.description, s.fit_score, s.sponsorship_signal "
         "FROM applications a JOIN apply_queue q ON q.job_id = a.job_id JOIN jobs j ON j.id = a.job_id "
         "JOIN scores s ON s.job_id = a.job_id WHERE a.status = 'queued'").fetchall()
     rows = rank_results([dict(r) for r in rows], cfg)

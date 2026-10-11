@@ -175,9 +175,14 @@ def db(tmp_path):
     store.close()
 
 
+MASTER = {"approved_summaries": [{"id": "sum_ai", "text": "x", "use_for": {"role_families": ["ai_engineer"]}}]}
+
+
 def toolbox(store):
     cfg = {**agent_cfg(), "companies": [], "preferences": {"location_priority": []}}
-    return Toolbox(cfg, store, llm=None), RunState(Limits.from_cfg(cfg))
+    tb = Toolbox(cfg, store, llm=None)
+    tb._master = MASTER                       # tiny stand-in for data/master_resume.yaml (not in git)
+    return tb, RunState(Limits.from_cfg(cfg))
 
 
 def test_tailor_refuses_low_scores_unscored_and_unknown(db):
@@ -267,3 +272,12 @@ def test_anthropic_chat_wire_format_and_parsing():
     assert resp.text == "Scoring now." and resp.stop_reason == "tool_use"
     assert resp.tool_calls == [ToolCall("tu_2", "score_jobs", {"limit": 5})]
     assert resp.as_message()["raw"] is not None          # replayed verbatim next turn
+
+
+def test_jobs_without_an_approved_summary_are_held_back(db):
+    tb, state = toolbox(db)
+    db.save_score({"job_id": "j2", "fit_score": 90, "fast_score": 90, "escalated": 0, "model": "m",
+                   "role_family": "program_product_manager", "matched_skills": "[]", "gaps": "[]",
+                   "sponsorship_signal": "yes", "uscis_status": "no_data", "scored_at": "2026-10-11"})
+    assert [c["job_id"] for c in tb.tailor_candidates()] == ["j0"]          # j2 is higher but has no summary
+    assert [c["job_id"] for c in tb.needs_summary()] == ["j2"]

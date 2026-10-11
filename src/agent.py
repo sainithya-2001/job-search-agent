@@ -132,6 +132,7 @@ class Toolbox:
     def __init__(self, cfg: dict, store: Store, llm: LLMProvider):
         self.cfg, self.store, self.llm = cfg, store, llm
         self._ctx = None
+        self._master = None
 
     @property
     def ctx(self):
@@ -179,6 +180,8 @@ class Toolbox:
                      if len(res.scored) < limit else f"scored {len(res.scored)} as requested"),
             "stopped_early": res.stopped_early,
             "tailor_candidates": self.tailor_candidates(),
+            # 65+ jobs held back because their role family has no approved summary (Nithya must add one).
+            "needs_approved_summary": self.needs_summary(),
         }
         return out
 
@@ -186,11 +189,26 @@ class Toolbox:
         """Untailored jobs at or above the minimum fit, in tailoring order (scorer.tailor_order)."""
         from src.scorer import tailor_order
 
-        min_score = self.cfg["agent"]["tailor_min_score"]
-        rows = [dict(r) for r in self.store.scored_rows()
-                if r["status"] == "scored" and r["fit_score"] >= min_score and r["id"] not in exclude]
+        rows = [r for r in self._eligible(exclude) if self._summary_ok(r)]
         return [{"job_id": r["id"], "company": r["company"], "title": r["title"], "fit_score": r["fit_score"],
                  "sponsorship": r["sponsorship_signal"] or "unclear"} for r in tailor_order(rows, self.cfg)]
+
+    def _eligible(self, exclude) -> list[dict]:
+        min_score = self.cfg["agent"]["tailor_min_score"]
+        return [dict(r) for r in self.store.scored_rows()
+                if r["status"] == "scored" and r["fit_score"] >= min_score and r["id"] not in exclude]
+
+    def _summary_ok(self, row) -> bool:
+        """Jobs whose role family has no pre-approved summary can't be tailored (summaries are never generated)."""
+        from src.verify import has_summary
+        if self._master is None:
+            from src.resume import load_master
+            self._master = load_master(ROOT / "data" / "master_resume.yaml")
+        return has_summary(self._master, row["role_family"] or row["role_hint"], row["title"])
+
+    def needs_summary(self) -> list[dict]:
+        return [{"job_id": r["id"], "company": r["company"], "title": r["title"], "fit_score": r["fit_score"],
+                 "role_family": r["role_family"]} for r in self._eligible(set()) if not self._summary_ok(r)]
 
     def tailor_resume(self, state: RunState, job_id: str) -> ToolOutput:
         from src.pipeline import tailor_and_publish, tailor_estimate
