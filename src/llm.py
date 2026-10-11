@@ -38,6 +38,42 @@ class LLMError(RuntimeError):
     """Non-retryable failure, or retries exhausted."""
 
 
+# ---- Tool calling (Phase 4) -------------------------------------------------------------------------------------
+@dataclass
+class ToolSpec:
+    name: str
+    description: str
+    parameters: dict        # JSON Schema for the tool's arguments (type: object)
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    args: dict
+
+
+@dataclass
+class ChatResponse:
+    """One model turn. Conversation messages are provider-neutral dicts:
+      {"role": "user", "content": str}
+      {"role": "assistant", "content": str, "tool_calls": [ToolCall], "raw": <provider's own reply>}
+      {"role": "tool", "results": [{"id", "name", "content": str, "is_error": bool}]}
+    `raw` lets a provider replay its own reply byte-for-byte on the next turn; build it with as_message()."""
+    text: str
+    tool_calls: list[ToolCall]
+    model: str
+    input_tokens: int
+    output_tokens: int
+    stop_reason: str        # "tool_use" | "end" | "max_tokens" | "refusal" | provider-specific
+    raw: object = None
+    latency_s: float = 0.0
+    attempts: int = 1
+
+    def as_message(self) -> dict:
+        return {"role": "assistant", "content": self.text, "tool_calls": self.tool_calls, "raw": self.raw}
+
+
 def load_env(path: str | Path = ".env") -> None:
     """Minimal .env reader (KEY=VALUE lines) so we don't need python-dotenv. Real env vars win."""
     p = Path(path)
@@ -72,11 +108,25 @@ class LLMProvider(ABC):
                       system: str | None = None) -> LLMResponse[T]:
         """Ask the model for output matching `schema`; returns it parsed and validated."""
         model = self.models[tier]
+        (data, in_tok, out_tok), latency, attempts = self._with_retry(
+            model, lambda: self._call(model, tier, prompt, schema, system))
+        return LLMResponse(data, model, in_tok, out_tok, latency, attempts)
+
+    def chat(self, messages: list[dict], tools: list[ToolSpec], *, tier: Tier = "fast",
+             system: str | None = None) -> ChatResponse:
+        """One turn of a tool-use conversation. `messages` use the provider-neutral format described at
+        ChatResponse; each provider translates it to its own wire format. Same retry policy as generate_json."""
+        model = self.models[tier]
+        resp, latency, attempts = self._with_retry(model, lambda: self._chat(model, tier, messages, tools, system))
+        resp.latency_s, resp.attempts = latency, attempts
+        return resp
+
+    def _with_retry(self, model: str, fn):
+        """Run fn() with the retry policy. Returns (result, latency_s, attempts)."""
         start = time.monotonic()
         for attempt in range(1, self.max_attempts + 1):
             try:
-                data, in_tok, out_tok = self._call(model, tier, prompt, schema, system)
-                return LLMResponse(data, model, in_tok, out_tok, time.monotonic() - start, attempt)
+                return fn(), time.monotonic() - start, attempt
             except Exception as exc:  # noqa: BLE001 — classified below
                 hint = self._retry_hint(exc)
                 if hint is None:
@@ -93,6 +143,11 @@ class LLMProvider(ABC):
     @abstractmethod
     def _call(self, model: str, tier: Tier, prompt: str, schema: type[T], system: str | None) -> tuple[T, int, int]:
         """One raw API call -> (parsed object, input tokens, output tokens)."""
+
+    def _chat(self, model: str, tier: Tier, messages: list[dict], tools: list[ToolSpec],
+              system: str | None) -> ChatResponse:
+        """One raw tool-use API call (latency/attempts are filled in by chat())."""
+        raise LLMError(f"{self.name}: tool calling is not implemented")
 
     @abstractmethod
     def _retry_hint(self, exc: Exception) -> float | None:
@@ -125,6 +180,45 @@ class GeminiProvider(LLMProvider):
         data = schema.model_validate_json(resp.text or "")
         usage = resp.usage_metadata
         return data, (usage.prompt_token_count or 0), (usage.candidates_token_count or 0)
+
+    def _chat(self, model, tier, messages, tools, system):
+        # Untested against the live API: the Gemini key has been blocked (403) since this was written.
+        from google.genai import types
+
+        contents = []
+        for m in messages:
+            if m["role"] == "user":
+                contents.append(types.Content(role="user", parts=[types.Part(text=m["content"])]))
+            elif m["role"] == "assistant":
+                if m.get("raw") is not None:
+                    contents.append(m["raw"])
+                else:
+                    parts = ([types.Part(text=m["content"])] if m.get("content") else []) + [
+                        types.Part(function_call=types.FunctionCall(id=c.id, name=c.name, args=c.args))
+                        for c in m["tool_calls"]]
+                    contents.append(types.Content(role="model", parts=parts))
+            else:
+                contents.append(types.Content(role="user", parts=[
+                    types.Part(function_response=types.FunctionResponse(
+                        id=r["id"], name=r["name"],
+                        response={"error" if r.get("is_error") else "output": r["content"]}))
+                    for r in m["results"]]))
+        resp = self.client.models.generate_content(
+            model=model, contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                tools=[types.Tool(function_declarations=[
+                    types.FunctionDeclaration(name=t.name, description=t.description,
+                                              parameters_json_schema=t.parameters) for t in tools])],
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)))
+        cand = resp.candidates[0] if resp.candidates else None
+        parts = (cand.content.parts if cand and cand.content else None) or []
+        text = "".join(p.text for p in parts if p.text)
+        calls = [ToolCall(p.function_call.id or f"call_{i}", p.function_call.name, dict(p.function_call.args or {}))
+                 for i, p in enumerate(parts) if p.function_call]
+        usage = resp.usage_metadata
+        return ChatResponse(text, calls, model, usage.prompt_token_count or 0, usage.candidates_token_count or 0,
+                            "tool_use" if calls else "end", raw=cand.content if cand else None)
 
     def _retry_hint(self, exc):
         from google.genai import errors
@@ -177,6 +271,35 @@ class AnthropicProvider(LLMProvider):
         if resp.stop_reason == "refusal" or resp.parsed_output is None:
             raise LLMError(f"anthropic/{model}: no structured output (stop_reason={resp.stop_reason})")
         return resp.parsed_output, resp.usage.input_tokens, resp.usage.output_tokens
+
+    def _chat(self, model, tier, messages, tools, system):
+        wire = []
+        for m in messages:
+            if m["role"] == "user":
+                wire.append({"role": "user", "content": m["content"]})
+            elif m["role"] == "assistant":
+                content = m.get("raw")
+                if content is None:      # rebuilt (e.g. by a test) rather than replayed
+                    content = ([{"type": "text", "text": m["content"]}] if m.get("content") else []) + [
+                        {"type": "tool_use", "id": c.id, "name": c.name, "input": c.args} for c in m["tool_calls"]]
+                wire.append({"role": "assistant", "content": content})
+            else:                        # tool results go back as a user turn of tool_result blocks
+                wire.append({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": r["id"], "content": r["content"],
+                     "is_error": bool(r.get("is_error"))} for r in m["results"]]})
+        kwargs = {"system": system} if system else {}
+        effort = (self.models.get("effort") or {}).get(tier)
+        if effort:
+            kwargs["output_config"] = {"effort": effort}
+        resp = self.client.messages.create(
+            model=model, max_tokens=4000, messages=wire,
+            tools=[{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools],
+            **kwargs)
+        text = "".join(b.text for b in resp.content if b.type == "text")
+        calls = [ToolCall(b.id, b.name, dict(b.input or {})) for b in resp.content if b.type == "tool_use"]
+        stop = {"tool_use": "tool_use", "end_turn": "end"}.get(resp.stop_reason, resp.stop_reason)
+        return ChatResponse(text, calls, model, resp.usage.input_tokens, resp.usage.output_tokens, stop,
+                            raw=resp.content)
 
     def _retry_hint(self, exc):
         a = self._anthropic

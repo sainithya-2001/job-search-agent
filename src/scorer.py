@@ -162,13 +162,17 @@ class RunResult:
     scored: list[dict] = field(default_factory=list)
     spent: float = 0.0
     calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
     stopped_early: str | None = None
 
 
 def score_jobs(jobs, system: str, llm: LLMProvider, cfg: dict, store, sponsor_db: SponsorshipDB,
-               est: Estimate) -> RunResult:
+               est: Estimate, cap: float | None = None, quiet: bool = False) -> RunResult:
+    """`cap` overrides scoring.max_run_cost_usd (the agent passes whatever is left of its own run budget)."""
     pricing = cfg["llm"].get("pricing", {})
-    threshold, cap = cfg["scoring"]["escalate_threshold"], cfg["scoring"]["max_run_cost_usd"]
+    threshold = cfg["scoring"]["escalate_threshold"]
+    cap = cfg["scoring"]["max_run_cost_usd"] if cap is None else cap
     companies = {c["name"]: c for c in cfg["companies"]}
     res = RunResult()
     # Budget guard: before each call, project its cost as the larger of 2x the estimate and the most
@@ -198,6 +202,8 @@ def score_jobs(jobs, system: str, llm: LLMProvider, cfg: dict, store, sponsor_db
         job_cost = sum(call_cost(c) for c in calls)
         res.spent += job_cost
         res.calls += len(calls)
+        res.input_tokens += sum(c.input_tokens for c in calls)
+        res.output_tokens += sum(c.output_tokens for c in calls)
 
         s: ScoredJob = final.data
         company = companies.get(job["company"], {})
@@ -218,7 +224,8 @@ def score_jobs(jobs, system: str, llm: LLMProvider, cfg: dict, store, sponsor_db
                            "remote": job["remote"], "tier": company.get("tier", "unknown"),
                            "bucket": job["bucket"] if "bucket" in job.keys() else None})
         tag = f"{fast.data.fit_score}->{s.fit_score} (strong)" if final is not fast else f"{s.fit_score}"
-        print(f"  [{i + 1:2d}/{len(jobs)}] {job['company'][:14]:14s} {job['title'][:52]:52s} {tag:>16s}  ${job_cost:.4f}")
+        if not quiet:
+            print(f"  [{i + 1:2d}/{len(jobs)}] {job['company'][:14]:14s} {job['title'][:52]:52s} {tag:>16s}  ${job_cost:.4f}")
         if res.stopped_early:
             break
     return res

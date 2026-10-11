@@ -53,6 +53,27 @@ CREATE TABLE IF NOT EXISTS scores (
     cost_usd           REAL,
     scored_at          TEXT NOT NULL
 );
+
+-- Application log, one row per job, upserted by the agent's log_application tool. Same columns as the
+-- Phase 5 Google Sheet, so sheets.py only has to sync this table. The agent may write status 'to_review' or
+-- 'skipped' only; 'applied' is set after Nithya submits and confirms (Phase 5), never by the agent.
+CREATE TABLE IF NOT EXISTS applications (
+    job_id         TEXT PRIMARY KEY REFERENCES jobs(id),
+    date_found     TEXT,
+    company        TEXT,
+    role           TEXT,
+    location       TEXT,
+    url            TEXT,
+    fit_score      INTEGER,
+    sponsorship    TEXT,
+    matched_skills TEXT,
+    gaps           TEXT,
+    resume_file    TEXT,
+    status         TEXT NOT NULL,
+    date_applied   TEXT,
+    notes          TEXT,
+    updated_at     TEXT NOT NULL
+);
 """
 
 
@@ -109,6 +130,27 @@ class Store:
                 if cur.rowcount:
                     new.append(job)
         return new
+
+    def preview_new(self, jobs: list[Job]) -> list[Job]:
+        """Dry-run twin of save(): which of these jobs WOULD be inserted (same two dedupe rules), writing nothing."""
+        seen_ids, seen_keys, new = set(), set(), []
+        for job in jobs:
+            key = dedupe_key(job)
+            if job.id in seen_ids or key in seen_keys:
+                continue
+            seen_ids.add(job.id); seen_keys.add(key)
+            exists = self.conn.execute("SELECT 1 FROM jobs WHERE id=? OR dedupe_key=?", (job.id, key)).fetchone()
+            if not exists:
+                new.append(job)
+        return new
+
+    def upsert_application(self, row: dict) -> None:
+        row = {**row, "updated_at": datetime.now(timezone.utc).isoformat()}
+        cols, marks = ", ".join(row), ", ".join("?" for _ in row)
+        updates = ", ".join(f"{c}=excluded.{c}" for c in row if c != "job_id")
+        with self.conn:
+            self.conn.execute(f"INSERT INTO applications ({cols}) VALUES ({marks}) "
+                              f"ON CONFLICT(job_id) DO UPDATE SET {updates}", tuple(row.values()))
 
     def count(self, status: str | None = None) -> int:
         if status:

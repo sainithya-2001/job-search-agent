@@ -106,6 +106,7 @@ job-agent/
 ### Phase 4 — Agent loop
 - Expose search_jobs, score_job, tailor_resume, log_application as tools. Write a plain tool-use loop (no framework) so the loop is readable. Add tool-calling to the src/llm.py interface so the loop stays provider-neutral.
 - Log every tool call (name, args, latency, tokens, cost) to logs/.
+- Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 65 and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
 - Done when: python main.py run does a full daily cycle autonomously up to (not including) applying.
 
 ### Phase 5 — Log + apply

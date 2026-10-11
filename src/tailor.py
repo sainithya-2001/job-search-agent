@@ -46,6 +46,8 @@ class TailorResult:
     attempt_issues: list[list[str]] = field(default_factory=list)
     cost: float = 0.0
     calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
     status: str = "FAIL"
 
 
@@ -107,6 +109,8 @@ def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, ll
     def spend(resp):
         out.cost += cost_usd(resp.model, resp.input_tokens, resp.output_tokens, pricing) or 0.0
         out.calls += 1
+        out.input_tokens += resp.input_tokens
+        out.output_tokens += resp.output_tokens
 
     for attempt in range(1, tcfg.get("max_attempts", 3) + 1):
         if out.cost >= budget_left:
