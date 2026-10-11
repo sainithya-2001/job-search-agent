@@ -44,6 +44,16 @@ agent:
   est_turn_input_tokens: 4000   # for the dry-run estimate and the per-turn budget check
   est_output_tokens: 400
 
+# Phase 5: applications. Review mode only: the agent pre-fills and queues, Nithya reviews and clicks Submit.
+# The gates below run in SHADOW mode: they record whether an application would have qualified for auto-submit,
+# but there is no submit code. Answers live in data/answer_bank.yaml (gitignored).
+apply:
+  auto_submit: false            # must stay false: true is rejected at startup (no submit code exists)
+  min_fit: 70
+  auto_ats: [greenhouse, lever]
+  max_per_day: 5
+  company_cooldown_days: 90     # counts every application to the company, manual ones included
+
 tailoring:
   # Headline = optional role label + skills from master_resume.yaml. The label must come from the list for the
   # job's role family (the families in filters.role_families). No other labels; no seniority words.

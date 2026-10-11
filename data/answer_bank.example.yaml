@@ -1,0 +1,136 @@
+# Answer bank template. Copy to data/answer_bank.yaml (gitignored) and fill in YOUR answers there.
+#
+# Matching is exact: a form question matches an entry only if its text equals one of `questions` after ignoring
+# case, spacing, and punctuation. Add new wordings to `questions` as you meet them (the review queue lists every
+# question it couldn't match, word for word).
+#
+#   answer: "text"            short text, or the option to pick in a dropdown / radio / yes-no
+#   answer: ["A", "B"]        choice questions: the first of these the form offers (forms word options differently)
+#   check: ["A", "B"]         multi-select: tick all of these (every one must be offered)
+#   answer: "@email"          filled from master_resume.yaml: @full_name @email @phone @location
+#   answer: "@resume"         the job's verified tailored PDF
+#   skip: true                leave blank on purpose (only works on optional questions)
+#   answer: null              not answered yet: the question is always left for you
+#
+# Long-answer boxes (cover letters, "why us?") always go to you, even if an entry matches.
+
+entries:
+  # ---- identity / contact ------------------------------------------------------------------------------------
+  - id: full_name
+    questions: ["Name", "Full name", "Full Name"]
+    answer: "@full_name"
+  - id: first_name
+    questions: ["First Name", "Legal First Name"]
+    answer: null                  # your first name as you want it on applications
+  - id: last_name
+    questions: ["Last Name", "Legal Last Name"]
+    answer: null
+  - id: preferred_first_name
+    questions: ["Preferred First Name", "Preferred Name"]
+    skip: true
+  - id: email
+    questions: ["Email", "Email Address"]
+    answer: "@email"
+  - id: phone
+    questions: ["Phone", "Phone Number", "Mobile Phone"]
+    answer: "@phone"
+  - id: phone_country
+    questions: ["Country"]
+    answer: null                  # Greenhouse's phone-country dropdown, e.g. "United States"
+  - id: city
+    questions: ["Location (City)", "Current location", "Location"]
+    answer: null                  # the exact option text the city lookup shows, e.g. "Atlanta, Georgia, United States"
+  - id: resume
+    questions: ["Resume/CV", "Resume", "Resume / CV", "CV"]
+    answer: "@resume"
+  - id: cover_letter
+    questions: ["Cover Letter"]
+    skip: true
+
+  # ---- links -------------------------------------------------------------------------------------------------
+  - id: linkedin
+    questions: ["LinkedIn Profile", "LinkedIn", "LinkedIn URL", "Linkedin Profile URL", "LinkedIn Profile URL"]
+    answer: null                  # https://www.linkedin.com/in/...
+  - id: github
+    questions: ["Github URL", "GitHub URL", "GitHub", "GitHub Profile"]
+    answer: null                  # or skip: true
+  - id: website
+    questions: ["Website", "Portfolio URL", "Portfolio", "Personal Website", "Other website"]
+    skip: true
+  - id: twitter
+    questions: ["Twitter URL", "Twitter", "X (Twitter) URL"]
+    skip: true
+  - id: current_company
+    questions: ["Current company", "Current Company", "Current employer"]
+    answer: null
+
+  # ---- work authorization ------------------------------------------------------------------------------------
+  - id: work_authorization
+    questions:
+      - "Are you legally authorized to work in the US?"
+      - "Are you legally authorized to work in the United States?"
+      - "Are you authorized to work in the United States?"
+      - "Are you currently authorized to work in the United States?"
+      - "Are you legally authorized to work in the USA?"
+    answer: null                  # "Yes" / "No"
+  - id: sponsorship
+    questions:
+      - "Will you now or in the future require sponsorship for employment?"
+      - "Will you now or in the future require sponsorship for employment visa status?"
+      - "Will you now or in the future require visa sponsorship?"
+      - "Do you now or will you in the future require sponsorship for employment visa status (e.g., H-1B visa status)?"
+      - "Will you require visa sponsorship?"
+      - "Do you now or will you in the future require sponsorship for work authorization to work in the USA?"
+    answer: null                  # "Yes" / "No"
+
+  # ---- location / relocation ---------------------------------------------------------------------------------
+  - id: relocation
+    questions:
+      - "Are you willing to relocate?"
+      - "Are you open to relocation?"
+      - "Would you be willing to relocate?"
+    answer: null
+  - id: onsite
+    questions:
+      - "Are you able to work onsite?"
+      - "Are you comfortable working in-office?"
+      - "Are you open to working in a hybrid environment?"
+    answer: null
+
+  # ---- compensation ------------------------------------------------------------------------------------------
+  - id: salary
+    questions:
+      - "What are your salary expectations?"
+      - "What is your expected salary?"
+      - "Desired salary"
+      - "Salary expectations"
+    answer: null                  # short text, e.g. "$120,000 - $140,000"
+
+  # ---- voluntary self-identification (EEO): decline -----------------------------------------------------------
+  # Listed wordings are the decline options different ATSs offer; the first one the form offers is picked.
+  - id: eeo_gender
+    questions: ["Gender", "Gender identity", "What is your gender?"]
+    answer: ["Decline To Self Identify", "Decline to self-identify", "I don't wish to answer", "Prefer not to say",
+             "I prefer not to answer", "Decline to state"]
+  - id: eeo_hispanic
+    questions: ["Are you Hispanic/Latino?", "Hispanic or Latino?"]
+    answer: ["Decline To Self Identify", "Decline to self-identify", "I don't wish to answer", "Prefer not to say",
+             "I prefer not to answer", "Decline to state"]
+  - id: eeo_race
+    questions: ["Race", "Please identify your race", "Race/Ethnicity", "Race / Ethnicity"]
+    answer: ["Decline To Self Identify", "Decline to self-identify", "I don't wish to answer", "Prefer not to say",
+             "I prefer not to answer", "Decline to state"]
+  - id: eeo_veteran
+    questions: ["Veteran Status", "Protected Veteran Status", "Are you a protected veteran?"]
+    answer: ["I don't wish to answer", "I do not wish to answer", "Decline to self-identify",
+             "Decline To Self Identify", "Prefer not to say", "I prefer not to answer"]
+  - id: eeo_disability
+    questions: ["Disability Status", "Do you have a disability?"]
+    answer: ["I do not want to answer", "I don't wish to answer", "Decline to self-identify",
+             "Decline To Self Identify", "Prefer not to say", "I prefer not to answer"]
+  - id: pronouns
+    questions: ["What pronouns do you use?", "Pronouns"]
+    answer: ["I prefer not to answer", "Prefer not to say", "Decline to self-identify", "I don't wish to answer"]
+  - id: sexual_orientation
+    questions: ["Sexual Orientation", "How would you describe your sexual orientation?"]
+    answer: ["I prefer not to answer", "Prefer not to say", "Decline to self-identify", "I don't wish to answer"]

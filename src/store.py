@@ -72,7 +72,26 @@ CREATE TABLE IF NOT EXISTS applications (
     status         TEXT NOT NULL,
     date_applied   TEXT,
     notes          TEXT,
-    updated_at     TEXT NOT NULL
+    updated_at     TEXT NOT NULL,
+    review_outcome TEXT,                       -- approved_unchanged / approved_edited / abandoned / submit_failed
+    edited_fields  TEXT,                       -- JSON list of pre-filled questions Nithya changed
+    shadow_qualified INTEGER,                  -- would it have passed every auto-submit gate (shadow mode)?
+    shadow_blockers  TEXT                      -- JSON list of failed gates
+);
+
+-- Phase 5 review queue: what the form asks and how much the answer bank covers, read before Nithya opens it.
+CREATE TABLE IF NOT EXISTS apply_queue (
+    job_id           TEXT PRIMARY KEY REFERENCES jobs(id),
+    ats              TEXT NOT NULL,
+    form_url         TEXT NOT NULL,
+    questions        TEXT NOT NULL,            -- JSON list of form questions
+    matches          TEXT NOT NULL,            -- JSON list of answer-bank match results
+    captcha          TEXT,                     -- JSON list of CAPTCHA markers found
+    gates            TEXT,                     -- JSON list of shadow gate results
+    shadow_qualified INTEGER NOT NULL,
+    answered         INTEGER NOT NULL,
+    total            INTEGER NOT NULL,
+    queued_at        TEXT NOT NULL
 );
 """
 
@@ -102,6 +121,11 @@ class Store:
         if "e_verify" not in cols:
             with self.conn:
                 self.conn.execute("ALTER TABLE scores ADD COLUMN e_verify TEXT DEFAULT 'unknown'")
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(applications)")}
+        for col in ("review_outcome TEXT", "edited_fields TEXT", "shadow_qualified INTEGER", "shadow_blockers TEXT"):
+            if col.split()[0] not in cols:
+                with self.conn:
+                    self.conn.execute(f"ALTER TABLE applications ADD COLUMN {col}")
 
     def jobs_by_status(self, status: str) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM jobs WHERE status=?", (status,)).fetchall()
@@ -151,6 +175,20 @@ class Store:
         with self.conn:
             self.conn.execute(f"INSERT INTO applications ({cols}) VALUES ({marks}) "
                               f"ON CONFLICT(job_id) DO UPDATE SET {updates}", tuple(row.values()))
+
+    def application(self, job_id: str):
+        return self.conn.execute("SELECT * FROM applications WHERE job_id=?", (job_id,)).fetchone()
+
+    def applications(self) -> list[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM applications ORDER BY updated_at").fetchall()
+
+    def save_queue(self, row: dict) -> None:
+        cols, marks = ", ".join(row), ", ".join("?" for _ in row)
+        with self.conn:
+            self.conn.execute(f"INSERT OR REPLACE INTO apply_queue ({cols}) VALUES ({marks})", tuple(row.values()))
+
+    def queue_row(self, job_id: str):
+        return self.conn.execute("SELECT * FROM apply_queue WHERE job_id=?", (job_id,)).fetchone()
 
     def count(self, status: str | None = None) -> int:
         if status:

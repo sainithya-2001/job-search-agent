@@ -218,23 +218,17 @@ class Toolbox:
                           r.input_tokens, r.output_tokens, r.cost)
 
     def log_application(self, state: RunState, job_id: str, status: str, notes: str = "") -> ToolOutput:
-        from src.pipeline import output_base
+        from src.apply import application_fields
 
         if status not in ("to_review", "skipped"):        # 'applied' is only ever set by Nithya (Phase 5)
             raise ToolError(f"status must be to_review or skipped, not {status!r}")
-        row = self.store.conn.execute(
-            "SELECT j.*, s.fit_score, s.sponsorship_signal, s.uscis_status, s.matched_skills, s.gaps "
-            "FROM jobs j LEFT JOIN scores s ON s.job_id = j.id WHERE j.id=?", (job_id,)).fetchone()
-        if row is None:
+        fields = application_fields(self.store, job_id)
+        if fields is None:
             raise ToolError(f"unknown job_id {job_id!r}")
-        pdf = output_base(row).with_suffix(".pdf")
-        self.store.upsert_application({
-            "job_id": job_id, "date_found": (row["first_seen_at"] or "")[:10], "company": row["company"],
-            "role": row["title"], "location": row["location"], "url": row["url"], "fit_score": row["fit_score"],
-            "sponsorship": f"{row['sponsorship_signal']} (USCIS: {row['uscis_status']})",
-            "matched_skills": row["matched_skills"], "gaps": row["gaps"],
-            "resume_file": pdf.name if status == "to_review" and pdf.exists() else None,
-            "status": status, "notes": notes})
+        prev = self.store.application(job_id)
+        if prev and prev["status"] in ("queued", "applied", "skipped"):   # never move a reviewed job backwards
+            return ToolOutput({"logged": job_id, "status": prev["status"], "note": "already further along"})
+        self.store.upsert_application({**fields, "status": status, "notes": notes})
         return ToolOutput({"logged": job_id, "status": status})
 
 

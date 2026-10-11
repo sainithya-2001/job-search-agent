@@ -253,6 +253,67 @@ def cmd_run(args) -> None:
     store.close()
 
 
+def cmd_answers_check(args) -> None:
+    from src.answers import BankError, load_bank
+
+    try:
+        bank = load_bank()
+    except BankError as e:
+        print(e)
+        return
+    todo = bank.unfilled()
+    print(f"Answer bank: {len(bank.entries)} entries, {len(bank.by_question)} question wordings")
+    print(("Not answered yet (these questions will always be left for you): " + ", ".join(todo)) if todo
+          else "Every entry has an answer or skip.")
+
+
+def cmd_queue(args) -> None:
+    from src.apply import queue_jobs, queue_report
+    from src.sheets import try_sync
+
+    cfg = load_config()
+    store = Store(ROOT / "data" / "jobs.db")
+    print("Reading application forms (headless; nothing is filled or submitted)...")
+    results = queue_jobs(cfg, store, args.job_ids or None)
+    print(queue_report(results))
+    print(f"\nQueued {sum('matches' in r for r in results)} application(s). "
+          f"Shadow auto-submit: {sum(bool(r.get('shadow_qualified')) for r in results)} would qualify "
+          f"(there is no submit code; all go to review).")
+    print(try_sync(store))
+    store.close()
+
+
+def cmd_review(args) -> None:
+    from src.apply import review
+    from src.sheets import try_sync
+
+    cfg = load_config()
+    store = Store(ROOT / "data" / "jobs.db")
+    res = review(cfg, store, args.job_id)
+    if res:
+        print(try_sync(store))
+    store.close()
+
+
+def cmd_confirm(args) -> None:
+    from src.apply import confirm
+    from src.sheets import try_sync
+
+    store = Store(ROOT / "data" / "jobs.db")
+    status = confirm(store, args.job_id, applied=args.applied, note=args.note or "")
+    print(f"{args.job_id}: {status}")
+    print(try_sync(store))
+    store.close()
+
+
+def cmd_sheets_sync(args) -> None:
+    from src.sheets import try_sync
+
+    store = Store(ROOT / "data" / "jobs.db")
+    print(try_sync(store))
+    store.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="job-agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -277,6 +338,26 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run", help="Daily agent cycle: search, score, tailor 65+ (never applies)")
     p.add_argument("--dry-run", action="store_true", help="plan and estimate cost; no LLM calls, no DB writes")
     p.set_defaults(func=cmd_run)
+    p = sub.add_parser("answers-check", help="Show which answer-bank entries you still need to fill in")
+    p.set_defaults(func=cmd_answers_check)
+    p = sub.add_parser("queue", help="Read forms for tailored jobs, match the answer bank, run shadow gates")
+    p.add_argument("job_ids", nargs="*")
+    p.set_defaults(func=cmd_queue)
+    p = sub.add_parser("review", help="Open the next queued form pre-filled; you review and submit")
+    p.add_argument("job_id", nargs="?")
+    p.set_defaults(func=cmd_review)
+    p = sub.add_parser("apply", help="Same as review, for one job id")
+    p.add_argument("job_id")
+    p.set_defaults(func=cmd_review)
+    p = sub.add_parser("confirm", help="Mark a job applied (after the employer's confirmation) or skipped")
+    p.add_argument("job_id")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--applied", action="store_true")
+    g.add_argument("--skipped", action="store_true")
+    p.add_argument("--note")
+    p.set_defaults(func=cmd_confirm)
+    p = sub.add_parser("sheets-sync", help="Upsert the applications table into Google Sheets")
+    p.set_defaults(func=cmd_sheets_sync)
 
     args = parser.parse_args(argv)
     args.func(args)

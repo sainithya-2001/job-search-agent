@@ -34,7 +34,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
   - Switch by changing the one line `llm.provider` in config.yaml. No other code may import an LLM SDK directly.
 - pyyaml (master resume), jinja2 + playwright (resume PDF via headless Chromium; WeasyPrint dropped because it needs GTK system libraries on Windows)
 - gspread + Google service account (Sheets logging)
-- playwright (form pre-fill)
+- playwright (form pre-fill, review mode only)
 - pytest (tests)
 - Config in config.yaml; secrets in .env (never committed; add to .gitignore)
 
@@ -63,7 +63,10 @@ job-agent/
     verify.py            # guardrail: every claim must trace to master_resume.yaml
     render.py            # YAML -> HTML -> PDF
     sheets.py            # log to Google Sheets
-    apply.py             # Playwright pre-fill for Greenhouse/Lever, stop before submit
+    answers.py           # answer bank + exact question matching
+    forms.py             # read/fill/snapshot Greenhouse, Lever, Ashby forms; submit safeguards
+    gates.py             # shadow-mode auto-submit gates (no submit code)
+    apply.py             # queue + review (pre-fill, hand over, log outcome) + confirm
     agent.py             # tool-use loop wiring the above as tools
   templates/resume.html.j2
   output/resumes/
@@ -71,7 +74,7 @@ job-agent/
     labeled_jobs.csv     # 50 jobs Nithya scored by hand
     run_evals.py
   tests/
-  main.py                # CLI: search | score | tailor <job_id> | apply <job_id> | run
+  main.py                # CLI: search | score | tailor | run | queue | review | apply <job_id> | confirm | sheets-sync
 ```
 
 ## Phases
@@ -109,9 +112,13 @@ job-agent/
 - Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 65 and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
 - Done when: python main.py run does a full daily cycle autonomously up to (not including) applying.
 
-### Phase 5 — Log + apply
-- sheets.py: columns = date_found, company, role, location, url, fit_score, sponsorship, matched_skills, gaps, resume_file, status, date_applied, notes. Upsert by job id.
-- apply.py: Playwright opens Greenhouse/Lever forms, fills name/email/phone/resume upload/standard questions from config.yaml, then PAUSES and waits for Nithya to review and click submit herself. Never auto-submit. Never touch LinkedIn/Indeed.
+### Phase 5 — Log + apply (review mode)
+- Answer bank: data/answer_bank.yaml (gitignored; Nithya fills it in; template data/answer_bank.example.yaml is committed). Standard questions: work authorization, sponsorship, location, relocation, salary range, links; EEO = decline to answer. A form question matches an entry only on exact text (case/spacing/punctuation ignored, no fuzzy or LLM matching); choice answers must equal an option the form offers. Unmatched or unanswered questions are left for Nithya.
+- Review mode is the only mode. `queue` reads each tailored job's form headlessly (Greenhouse, Lever, Ashby) and records how much the bank covers. `review` opens the form in a visible browser, pre-fills exact matches, attaches the verified tailored PDF, outlines what's left, and hands over: Nithya reviews and clicks Submit herself. `confirm <job_id> --applied|--skipped` records the result (also for applications she submitted by hand).
+- Never submit. No code clicks a submit control (safe_click refuses submit-like buttons) and submissions are blocked while the agent fills. Never touch LinkedIn/Indeed. Never attempt to solve or bypass a CAPTCHA.
+- Log for each application whether Nithya approved unchanged or edited (form snapshot after pre-fill vs at her Submit click; edited questions listed; edits to bank answers flagged).
+- Shadow-mode auto-submit gates (config.yaml `apply`, auto_submit: false; there is no submit code and true is rejected): record whether an application WOULD qualify: fit >= 70, Greenhouse or Lever, no CAPTCHA of any kind, every question matched exactly from the bank, no long-answer box (short text fields are fine if matched exactly), at most 5 per day, no application to the same company in 90 days (manual ones included), verified one-page resume, posting open. Everything goes to the review queue regardless.
+- sheets.py: columns = job_id, date_found, company, role, location, url, fit_score, sponsorship, matched_skills, gaps, resume_file, status, date_applied, review_outcome, notes. Upsert by job id. SQLite `applications` is the source of truth; the sheet is synced from it.
 - Done when: one real application is pre-filled and the sheet row updates to "applied" after she confirms.
 
 ### Phase 6 — Evals + deploy

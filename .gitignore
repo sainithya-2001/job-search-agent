@@ -19,3 +19,7 @@ data/master_resume.yaml
 
 # USCIS H-1B Employer Data Hub exports (large, downloaded manually)
 data/uscis/
+
+# Phase 5: personal answers and Google credentials
+data/answer_bank.yaml
+data/google_service_account.json
