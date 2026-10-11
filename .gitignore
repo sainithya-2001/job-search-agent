@@ -12,3 +12,7 @@ data/jobs.db
 data/*.db-journal
 output/
 logs/
+
+# personal resume sources and the master resume built from them (contain contact info)
+data/resumes/
+data/master_resume.yaml
