@@ -79,13 +79,16 @@ job-agent/
 
 ### Phase 2 — Score
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
-- Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Opus 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
+- Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Sonnet 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
 - Cross-check sponsorship with sponsorship.py (USCIS Employer Data Hub CSV; match on normalized employer name).
 - Done when: python main.py score ranks jobs and stores scores.
 
 ### Phase 3 — Tailor (with guardrail)
 - master_resume.yaml holds every bullet with an id. Tailoring may only select, reorder, and reword existing bullets and skills. No new tools, metrics, titles, dates, or employers.
 - verify.py: second LLM call + string checks. For each output bullet, cite the source bullet id. Reject and retry if any number, tool, or claim is not in the source.
+- Coursework: pick the 4–6 courses most relevant to the job from master_resume.yaml; never list all of them.
+- Never use a master_resume.yaml field whose conflict is unresolved, or anything marked pending/outdated.
+- Before starting Phase 3, ask Nithya again: which unsupported skills to drop (Anthropic, Azure, CI/CD, AI-evaluation skills) and which cloud to keep (Azure vs AWS). Also ask for her elective courses.
 - Render to output/resumes/{company}_{role}.pdf.
 - Done when: python main.py tailor <job_id> produces a PDF and a verification report.
 
