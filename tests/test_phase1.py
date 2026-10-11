@@ -280,7 +280,10 @@ def test_manager_roles_kept_in_new_family(jf, title, family):
     assert r.keep and r.role_hint == family
 
 
-@pytest.mark.parametrize("title", ["Engineering Manager, AI", "Manager, Software Engineering", "AI Engineering Manager",
+@pytest.mark.parametrize("title", ["Manager, Applied AI Architecture, Enterprise", "Manager of Applied AI Architecture",
+                                   "Manager, Solutions Engineering", "Senior Manager, Solution Engineering Enablement",
+                                   "Revenue Enablement Manager, Customer Success & Solutions Engineering",
+                                   "Engineering Manager, AI", "Manager, Software Engineering", "AI Engineering Manager",
                                    "Director of Product", "VP, Product", "Head of AI Programs",
                                    "Account Manager", "Customer Success Manager"])
 def test_management_and_non_target_manager_titles_excluded(jf, title):

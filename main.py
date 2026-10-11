@@ -82,12 +82,12 @@ def cmd_search(args) -> None:
 def cmd_score(args) -> None:
     from src.llm import get_llm
     from src.resume import load_master, profile_text
-    from src.scorer import SYSTEM_TEMPLATE, estimate, rank_results, score_jobs, select_jobs, select_mix
+    from src.scorer import SYSTEM_TEMPLATE, estimate, is_fresh, rank_results, score_jobs, select_jobs, select_mix
     from src.sponsorship import SponsorshipDB
 
     cfg = load_config()
     limit = args.limit or cfg["scoring"]["default_limit"]
-    cap = cfg["scoring"]["max_run_cost_usd"]
+    cap = args.cap if args.cap is not None else cfg["scoring"]["max_run_cost_usd"]
     store = Store(ROOT / "data" / "jobs.db")
     previous = {}
     if args.job_ids:
@@ -109,6 +109,10 @@ def cmd_score(args) -> None:
               + ", ".join(f"{b['n']} {b['name']}" for b in mix["buckets"]))
         for n in notes:
             print(f"  ! {n}")
+    elif args.all:
+        # Every unscored job, no per-company cap, still in priority order (AI families first, PM family last).
+        unscored = store.unscored_jobs()
+        jobs = select_jobs(unscored, cfg, len(unscored), max_per_company=len(unscored))
     else:
         jobs = select_jobs(store.unscored_jobs(), cfg, limit)
     if not jobs:
@@ -130,19 +134,30 @@ def cmd_score(args) -> None:
     if not sponsor_db.loaded:
         print("USCIS: no files in data/uscis/ — cross-check will report no_data.")
     print()
-    res = score_jobs(jobs, system, llm, cfg, store, sponsor_db, est)
+    res = score_jobs(jobs, system, llm, cfg, store, sponsor_db, est, cap=cap)
 
     rows = rank_results(res.scored, cfg)
     print(f"\nActual cost: ${res.spent:.4f} over {res.calls} API calls "
           f"({sum(r['escalated'] for r in res.scored)} escalated to {llm.models['strong']})")
     if res.stopped_early:
         print(f"Stopped early: {res.stopped_early}")
-    print(f"\n{'#':>2}  {'Company':16s} {'Tier':8s} {'Title':44s} {'Location':24s} {'Rem':3s} {'Fit':>3}  "
+    now = datetime.now(timezone.utc)
+
+    def posted(r) -> str:
+        if not r.get("posted_at"):
+            return "no date"
+        p = datetime.fromisoformat(r["posted_at"])
+        days = (now - (p if p.tzinfo else p.replace(tzinfo=timezone.utc))).days
+        return f"{days}d" + (" *" if is_fresh(r, cfg, now) else "")
+
+    print("Ranked by fit, then freshness (* = posted 0-3 days ago; a fresh job goes ahead of an older one up to "
+          f"{cfg.get('ranking', {}).get('freshness_preference_points', 5)} points higher), sponsorship, tier, location.")
+    print(f"\n{'#':>2}  {'Fit':>3}  {'Posted':7s} {'Family':23s} {'Company':16s} {'Title':44s} {'Location':22s} "
           f"{'Sponsor':7s}  Reason")
     for i, r in enumerate(rows, 1):
         was = f"(was {previous[r['job_id']]}) " if r["job_id"] in previous else ""
-        print(f"{i:2d}  {r['company'][:16]:16s} {r['tier'][:8]:8s} {r['title'][:44]:44s} {r['location'][:24]:24s} "
-              f"{'yes' if r['remote'] else 'no':3s} {r['fit_score']:3d}  {r['sponsorship_signal']:7s}  "
+        print(f"{i:2d}  {r['fit_score']:3d}  {posted(r):7s} {r['role_family'][:23]:23s} {r['company'][:16]:16s} "
+              f"{r['title'][:44]:44s} {r['location'][:22]:22s} {r['sponsorship_signal']:7s}  "
               f"{was}{r['one_line_reason']}")
     store.close()
 
@@ -342,6 +357,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--limit", type=int, default=None, help="jobs to score (default: scoring.default_limit)")
     p.add_argument("--mix", action="store_true", help="pick jobs per scoring.mix buckets instead of top-N")
     p.add_argument("--job-ids", nargs="+", help="re-score these jobs (replaces their current scores)")
+    p.add_argument("--all", action="store_true", help="score every unscored job (no per-company cap)")
+    p.add_argument("--cap", type=float, help="cost cap for this run in USD (default scoring.max_run_cost_usd)")
     p.set_defaults(func=cmd_score)
     p = sub.add_parser("tailor", help="Tailor + verify resumes for job ids (HTML; --pdf for PDF)")
     p.add_argument("job_ids", nargs="+")

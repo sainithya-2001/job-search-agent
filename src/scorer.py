@@ -124,13 +124,15 @@ def _cap_per_company(ordered, limit: int, cap: int, per_company: dict | None = N
     return picked
 
 
-def select_jobs(rows, cfg: dict, limit: int) -> list:
-    """Most relevant first: role-family priority, company tier, location priority, newest; capped per company."""
+def select_jobs(rows, cfg: dict, limit: int, max_per_company: int | None = None) -> list:
+    """Most relevant first: role-family priority, company tier, location priority, newest; capped per company
+    (scoring.max_per_company unless max_per_company is given)."""
     families = {f["name"]: i for i, f in enumerate(cfg["filters"]["role_families"])}
     tiers = company_tiers(cfg)
     ordered = sorted(rows, key=lambda r: (families.get(r["role_hint"], 99), tier_rank(r["company"], tiers),
                                           job_location_rank(r, cfg), -_posted_ts(r)))
-    return _cap_per_company(ordered, limit, cfg["scoring"].get("max_per_company", 3))
+    cap = cfg["scoring"].get("max_per_company", 3) if max_per_company is None else max_per_company
+    return _cap_per_company(ordered, limit, cap)
 
 
 def select_mix(rows, cfg: dict) -> tuple[list, list[str]]:

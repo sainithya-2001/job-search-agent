@@ -65,7 +65,7 @@ tailoring:
     ai_consultant:    [AI Consultant]
     ai_eval:          [AI Evaluation]
     analyst_backup:   [Data Analyst, Business Analyst, Analytics Engineer]
-    program_product_manager: []   # no label approved yet: headline has skills only (needs an approved summary too)
+    program_product_manager: [Technical Program Manager, Program Manager, Product Manager]
   headline_forbidden_words: [Senior, Lead, Principal, Staff]
   max_headline_skills: 4
   # Experience entries that may be dropped (e.g. to fit one page). All others must appear, in order.
@@ -329,6 +329,12 @@ filters:
   # Other specialties dropped UNLESS the title also matches `ai_title_terms`
   # ("Backend Engineer" is dropped; "Backend Engineer, LLM" is kept).
   title_exclude_unless_ai: ['\bembedded\b', '\bfirmware\b', '\bback[- ]?end\b']
+
+  # Titles dropped unless their role family is one of `families`. "Manager" passes only for program_product_manager
+  # (Program/Product/Analytics/AI/Data/Solutions Manager); people-manager roles like "Manager, Applied AI
+  # Architecture" (which match ai_engineer patterns) stay excluded.
+  title_exclude_except_families:
+    - {pattern: '\bmanager\b', families: [program_product_manager]}
   ai_title_terms: ['\bai\b', '\bml\b', '\bmachine learning\b', '\bllms?\b', '\bgen ?ai\b']
 
   # Description phrases that disqualify a posting (citizenship, clearance, export control, staffing/contract).

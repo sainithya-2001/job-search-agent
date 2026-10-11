@@ -79,6 +79,8 @@ class JobFilter:
         self.now = now or datetime.now(timezone.utc)
         self.title_exclude = [re.compile(p, flags) for p in cfg.get("title_exclude", [])]
         self.unless_ai = [re.compile(p, flags) for p in cfg.get("title_exclude_unless_ai", [])]
+        self.except_families = [(re.compile(r["pattern"], flags), set(r["families"]))
+                                for r in cfg.get("title_exclude_except_families", [])]
         self.ai_terms = [re.compile(p, flags) for p in cfg.get("ai_title_terms", [])]
         self.phrases = [re.compile(p, flags) for p in cfg.get("exclude_phrases", [])]
         self.bad_types = {t.lower() for t in cfg.get("exclude_employment_types", [])}
@@ -143,6 +145,9 @@ class JobFilter:
             return FilterResult(False, "title: not a target role")
         for p in self.title_exclude:
             if p.search(job.title):
+                return FilterResult(False, "title: excluded seniority / specialty")
+        for p, allowed in self.except_families:
+            if p.search(job.title) and family not in allowed:
                 return FilterResult(False, "title: excluded seniority / specialty")
         if any(p.search(job.title) for p in self.unless_ai) and not any(p.search(job.title) for p in self.ai_terms):
             return FilterResult(False, "title: non-AI mobile/embedded/backend")
