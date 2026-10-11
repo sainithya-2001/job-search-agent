@@ -23,7 +23,10 @@ Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, 
 ## Stack
 - Python 3.11+, venv
 - httpx (HTTP), pydantic (models), SQLite via sqlite3 (storage)
-- anthropic SDK (LLM calls, tool use, structured JSON output)
+- LLM calls go through the provider interface in src/llm.py (structured JSON output, retry with backoff on rate limits/5xx)
+  - Default provider: Google Gemini via google-genai SDK, key GEMINI_API_KEY
+  - Alternate: anthropic SDK (Claude), key ANTHROPIC_API_KEY
+  - Switch by changing the one line `llm.provider` in config.yaml. No other code may import an LLM SDK directly.
 - pyyaml (master resume), jinja2 + weasyprint (resume PDF)
 - gspread + Google service account (Sheets logging)
 - playwright (form pre-fill)
@@ -34,13 +37,14 @@ Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, 
 ```
 job-agent/
   CLAUDE.md
-  config.yaml            # roles, filters, score threshold, company board list
-  .env.example           # ANTHROPIC_API_KEY, JSEARCH_API_KEY, GOOGLE_SHEET_ID
+  config.yaml            # llm provider + models, roles, filters, score threshold, company board list
+  .env.example           # GEMINI_API_KEY, ANTHROPIC_API_KEY (optional), JSEARCH_API_KEY, GOOGLE_SHEET_ID
   data/
     master_resume.yaml   # single source of truth for every fact
     jobs.db
   src/
     models.py            # Job, ScoredJob, TailoredResume
+    llm.py               # provider interface (Gemini default, Claude alternate), tiers, retry/backoff
     sources/
       greenhouse.py      # boards-api.greenhouse.io/v1/boards/{company}/jobs?content=true
       lever.py           # api.lever.co/v0/postings/{company}?mode=json
@@ -75,7 +79,7 @@ job-agent/
 
 ### Phase 2 — Score
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
-- Use a cheaper/faster model for the first pass, a stronger model only for jobs scoring >= 60.
+- Use the "fast" tier (Gemini Flash-Lite) for the first pass and the "strong" tier (Gemini Pro) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
 - Cross-check sponsorship with sponsorship.py (USCIS Employer Data Hub CSV; match on normalized employer name).
 - Done when: python main.py score ranks jobs and stores scores.
 
@@ -86,7 +90,7 @@ job-agent/
 - Done when: python main.py tailor <job_id> produces a PDF and a verification report.
 
 ### Phase 4 — Agent loop
-- Expose search_jobs, score_job, tailor_resume, log_application as tools. Write a plain tool-use loop (no framework) so the loop is readable.
+- Expose search_jobs, score_job, tailor_resume, log_application as tools. Write a plain tool-use loop (no framework) so the loop is readable. Add tool-calling to the src/llm.py interface so the loop stays provider-neutral.
 - Log every tool call (name, args, latency, tokens, cost) to logs/.
 - Done when: python main.py run does a full daily cycle autonomously up to (not including) applying.
 
