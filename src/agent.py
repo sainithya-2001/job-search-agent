@@ -29,8 +29,8 @@ LOG_DIR = ROOT / "logs"
 SYSTEM = """You run Nithya's daily job-search cycle by calling tools. Do exactly this, in order:
 1. Call search_jobs once.
 2. Call score_jobs once.
-3. For each job in score_jobs' tailor_candidates (already filtered to fit_score >= the minimum, best first), call
-   tailor_resume, at most {max_tailor} times in total.
+3. For each job in score_jobs' tailor_candidates (already filtered to fit_score >= the minimum and in the
+   required order), call tailor_resume in exactly that order, at most {max_tailor} times in total.
 4. After each tailor_resume, call log_application for that job: status "to_review" if its status starts with PASS,
    otherwise "skipped" with a short note on why.
 5. Then reply with a 2-4 sentence summary and no tool call. That ends the run.
@@ -178,14 +178,15 @@ class Toolbox:
         }
         return out
 
-    def tailor_candidates(self) -> list[dict]:
-        from src.scorer import result_sort_key
+    def tailor_candidates(self, exclude: set[str] = frozenset()) -> list[dict]:
+        """Untailored jobs at or above the minimum fit, in tailoring order (scorer.tailor_order)."""
+        from src.scorer import tailor_order
 
         min_score = self.cfg["agent"]["tailor_min_score"]
-        rows = [dict(r) for r in self.store.scored_rows() if r["status"] == "scored" and r["fit_score"] >= min_score]
-        rows.sort(key=lambda r: result_sort_key(r, self.cfg))
-        return [{"job_id": r["id"], "company": r["company"], "title": r["title"], "fit_score": r["fit_score"]}
-                for r in rows]
+        rows = [dict(r) for r in self.store.scored_rows()
+                if r["status"] == "scored" and r["fit_score"] >= min_score and r["id"] not in exclude]
+        return [{"job_id": r["id"], "company": r["company"], "title": r["title"], "fit_score": r["fit_score"],
+                 "sponsorship": r["sponsorship_signal"] or "unclear"} for r in tailor_order(rows, self.cfg)]
 
     def tailor_resume(self, state: RunState, job_id: str) -> ToolOutput:
         from src.pipeline import tailor_and_publish, tailor_estimate
@@ -201,6 +202,12 @@ class Toolbox:
             raise ToolError(f"refused: fit_score {sc['fit_score'] if sc else 'none'} is below {lim.tailor_min_score}")
         if job["status"] == "tailored":
             raise ToolError("refused: this job already has a tailored resume")
+        # Tailoring order is enforced here, not left to the model: only the next candidate may be tailored.
+        attempted = {t["job_id"] for t in state.tailored}
+        nxt = self.tailor_candidates(exclude=attempted)
+        if nxt and nxt[0]["job_id"] != job_id:
+            raise ToolError(f"refused: tailor candidates in order; next is {nxt[0]['job_id']} "
+                            f"({nxt[0]['company']}, fit {nxt[0]['fit_score']}, sponsorship {nxt[0]['sponsorship']})")
         # Budget: tailor_job checks its budget before each attempt, so one attempt can run past it. Hold back a
         # projected attempt (2x the estimate) so even that last attempt stays under the run cap.
         attempt = 2 * tailor_estimate(job, self.store, self.ctx, self.llm, self.cfg)

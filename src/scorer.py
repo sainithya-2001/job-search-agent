@@ -47,7 +47,7 @@ role_family — pick exactly one:
 - analyst_backup: Data Analyst, Business Analyst, Analytics Engineer
 - other: none of the above (e.g. general software engineering, research, sales)
 
-sponsorship_signal (informational only; it is not used for scoring or ranking):
+sponsorship_signal (report what the posting says; it never affects fit_score):
 - "yes" only if the posting explicitly says it sponsors visas / H-1B or offers immigration support.
 - "no" if it says it will not sponsor, or requires work authorization without sponsorship.
 - otherwise "unclear".
@@ -133,10 +133,41 @@ def select_mix(rows, cfg: dict) -> tuple[list, list[str]]:
     return picked, notes
 
 
+SPONSOR_ORDER = {"yes": 0, "unclear": 1, "no": 2}
+
+
+def sponsor_rank(row) -> int:
+    """yes > unclear > no. Missing/unknown counts as unclear. Used for ordering only, never for fit or filtering."""
+    signal = row["sponsorship_signal"] if "sponsorship_signal" in row.keys() else None
+    return SPONSOR_ORDER.get(signal or "unclear", 1)
+
+
 def result_sort_key(row: dict, cfg: dict):
-    """Final ranking: fit_score, then company tier (startup > growth > big_tech), then location priority."""
-    return (-row["fit_score"], tier_rank(row["company"], company_tiers(cfg)),
+    """Final ranking: fit_score, then sponsorship signal (yes > unclear > no), then company tier
+    (startup > growth > big_tech), then location priority."""
+    return (-row["fit_score"], sponsor_rank(row), tier_rank(row["company"], company_tiers(cfg)),
             location_rank(row["location"], cfg["preferences"]["location_priority"], bool(row.get("remote"))))
+
+
+def tailor_order(rows: list, cfg: dict) -> list:
+    """Order in which to tailor: the result ranking, except that a sponsorship-"yes" job is picked ahead of a
+    non-"yes" job whose fit_score is at most `agent.sponsorship_preference_points` (3) higher.
+
+    Greedy, one pick at a time: take the top remaining job by result_sort_key; if it isn't "yes" and some "yes" job
+    is within the margin of it, take the best such "yes" job instead. (A plain sort key can't express this: the
+    within-3-points rule isn't transitive.)"""
+    margin = cfg.get("agent", {}).get("sponsorship_preference_points", 3)
+    remaining = sorted(rows, key=lambda r: result_sort_key(r, cfg))
+    ordered = []
+    while remaining:
+        top = remaining[0]
+        if sponsor_rank(top) != 0:
+            yes = [r for r in remaining if sponsor_rank(r) == 0 and top["fit_score"] - r["fit_score"] <= margin]
+            if yes:
+                top = yes[0]                  # remaining is sorted, so this is the best "yes" in range
+        ordered.append(top)
+        remaining.remove(top)
+    return ordered
 
 
 @dataclass

@@ -200,6 +200,19 @@ def test_tailor_refuses_after_max_per_run_and_already_tailored(db):
         tb.tailor_resume(state, "j0")
 
 
+def test_tailor_order_is_enforced_with_sponsorship_preference(db):
+    tb, state = toolbox(db)
+    db.save_score({"job_id": "j2", "fit_score": 78, "fast_score": 78, "escalated": 0, "model": "m",
+                   "role_family": "ai_engineer", "matched_skills": "[]", "gaps": "[]",
+                   "sponsorship_signal": "yes", "uscis_status": "no_data", "scored_at": "2026-10-11"})
+    # j0 (80, unclear) vs j2 (78, yes): within 3 points, so j2 goes first and j0 is refused for now
+    assert [c["job_id"] for c in tb.tailor_candidates()] == ["j2", "j0"]
+    with pytest.raises(ToolError, match="next is j2"):
+        tb.tailor_resume(state, "j0")
+    state.tailored.append({"job_id": "j2"})                      # once j2 has been attempted, j0 is next
+    assert [c["job_id"] for c in tb.tailor_candidates(exclude={"j2"})] == ["j0"]
+
+
 def test_tailor_candidates_are_65_plus_and_untailored(db):
     tb, _ = toolbox(db)
     assert [c["job_id"] for c in tb.tailor_candidates()] == ["j0"]

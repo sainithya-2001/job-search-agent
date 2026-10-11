@@ -174,11 +174,16 @@ def queue_report(results: list[dict]) -> str:
 
 
 # ---- review -----------------------------------------------------------------------------------------------------
-def next_job_id(store: Store) -> str | None:
-    row = store.conn.execute(
-        "SELECT a.job_id FROM applications a JOIN apply_queue q ON q.job_id = a.job_id "
-        "WHERE a.status = 'queued' ORDER BY a.fit_score DESC, q.queued_at").fetchone()
-    return row["job_id"] if row else None
+def next_job_id(store: Store, cfg: dict) -> str | None:
+    """Next queued application, in the same order as the score ranking (fit, sponsorship, tier, location)."""
+    from src.scorer import result_sort_key
+
+    rows = store.conn.execute(
+        "SELECT a.job_id, j.company, j.location, j.remote, s.fit_score, s.sponsorship_signal "
+        "FROM applications a JOIN apply_queue q ON q.job_id = a.job_id JOIN jobs j ON j.id = a.job_id "
+        "JOIN scores s ON s.job_id = a.job_id WHERE a.status = 'queued'").fetchall()
+    rows = sorted((dict(r) for r in rows), key=lambda r: result_sort_key(r, cfg))
+    return rows[0]["job_id"] if rows else None
 
 
 def classify(prefilled: dict, final: dict, filled_keys: set[str], labels: dict[str, str]) -> dict:
@@ -200,7 +205,7 @@ def review(cfg: dict, store: Store, job_id: str | None = None, echo=print, ask=i
 
     check_config(cfg["apply"])
     interactive = sys.stdin.isatty() if interactive is None else interactive
-    job_id = job_id or next_job_id(store)
+    job_id = job_id or next_job_id(store, cfg)
     if not job_id:
         echo("Review queue is empty. Run `python main.py queue` first.")
         return None

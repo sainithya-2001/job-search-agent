@@ -89,8 +89,8 @@ job-agent/
 ### Phase 2 — Score
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
 - Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Sonnet 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
-- sponsorship_signal and the USCIS cross-check (sponsorship.py) are informational only: they never affect fit_score, ranking, or filtering.
-- Ranking of results: fit_score, then company tier (startup > growth > big_tech), then location priority.
+- The scoring prompt stays neutral on sponsorship: sponsorship_signal is reported from the posting but never affects fit_score. It is used only for ordering (ranking above, tailoring order in Phase 4). The USCIS cross-check (sponsorship.py) is informational only.
+- Ranking of results: fit_score, then sponsorship_signal (yes > unclear > no), then company tier (startup > growth > big_tech), then location priority. Sponsorship is a preference, never a filter.
 - Cost control: print an estimate before each run and the actual cost after; never exceed scoring.max_run_cost_usd.
 - Done when: python main.py score ranks jobs and stores scores.
 
@@ -110,6 +110,7 @@ job-agent/
 ### Phase 4 — Agent loop
 - Expose search_jobs, score_job, tailor_resume, log_application as tools. Write a plain tool-use loop (no framework) so the loop is readable. Add tool-calling to the src/llm.py interface so the loop stays provider-neutral.
 - Log every tool call (name, args, latency, tokens, cost) to logs/.
+- Tailoring order (scorer.tailor_order, enforced in tailor_resume): the result ranking, except a sponsorship-"yes" job goes ahead of a non-"yes" job whose fit_score is at most 3 points higher (agent.sponsorship_preference_points).
 - Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 65 and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
 - Done when: python main.py run does a full daily cycle autonomously up to (not including) applying.
 

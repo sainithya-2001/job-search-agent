@@ -39,6 +39,7 @@ agent:
   score_limit: 15               # jobs scored per run
   max_score_cost_usd: 0.15      # scoring's share of the cap, so tailoring always has budget left
   tailor_min_score: 65
+  sponsorship_preference_points: 3   # tailoring order: a sponsorship-"yes" job goes ahead of a non-yes job up to this many fit points higher
   max_tailor_per_run: 5
   agent_reserve_usd: 0.02       # held back from tools so the model can always finish
   est_turn_input_tokens: 4000   # for the dry-run estimate and the per-turn budget check

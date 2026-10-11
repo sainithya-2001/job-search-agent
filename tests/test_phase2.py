@@ -194,6 +194,34 @@ def test_result_sort_fit_then_tier_then_location(cfg):
     assert order == ["Datadog", "LangChain", "Rogo", "OpenAI"]
 
 
+def test_result_sort_sponsorship_after_fit_before_tier(cfg):
+    from src.scorer import result_sort_key
+    rows = [{"fit_score": 70, "company": "LangChain", "location": "Remote - US", "remote": 1, "sponsorship_signal": "no"},
+            {"fit_score": 70, "company": "OpenAI", "location": "Atlanta, GA", "remote": 0, "sponsorship_signal": "yes"},
+            {"fit_score": 70, "company": "Rogo", "location": "New York, NY", "remote": 0, "sponsorship_signal": None},
+            {"fit_score": 71, "company": "Hex", "location": "Austin, TX", "remote": 0, "sponsorship_signal": "no"}]
+    order = [r["company"] for r in sorted(rows, key=lambda r: result_sort_key(r, cfg))]
+    # fit first; then yes > unclear (missing counts as unclear) > no, even against a better tier
+    assert order == ["Hex", "OpenAI", "Rogo", "LangChain"]
+
+
+def _t(name, fit, signal):
+    return {"id": name, "company": "Rogo", "location": "New York, NY", "remote": 0, "fit_score": fit,
+            "sponsorship_signal": signal}
+
+
+@pytest.mark.parametrize("rows,expected", [
+    ([_t("a", 70, "unclear"), _t("b", 67, "yes")], ["b", "a"]),          # within 3 points: yes first
+    ([_t("a", 70, "unclear"), _t("b", 66, "yes")], ["a", "b"]),          # 4 points apart: fit wins
+    ([_t("a", 70, "no"), _t("b", 69, "unclear")], ["a", "b"]),           # only "yes" gets the margin
+    ([_t("a", 75, "unclear"), _t("b", 73, "yes"), _t("c", 72, "yes")], ["b", "c", "a"]),
+    ([_t("a", 80, "unclear"), _t("b", 78, "unclear"), _t("c", 76, "yes")], ["a", "c", "b"]),
+])
+def test_tailor_order_prefers_sponsorship_within_3_points(cfg, rows, expected):
+    from src.scorer import tailor_order
+    assert [r["id"] for r in tailor_order(rows, cfg)] == expected
+
+
 def test_select_mix_buckets_tiers_and_shortfall(cfg):
     from src.scorer import select_mix
     rows = [job(1, "Rogo", "ai_solutions"), job(2, "Sierra", "forward_deployed"), job(3, "OpenAI", "ai_solutions"),
