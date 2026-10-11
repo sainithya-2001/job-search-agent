@@ -175,14 +175,14 @@ def queue_report(results: list[dict]) -> str:
 
 # ---- review -----------------------------------------------------------------------------------------------------
 def next_job_id(store: Store, cfg: dict) -> str | None:
-    """Next queued application, in the same order as the score ranking (fit, sponsorship, tier, location)."""
-    from src.scorer import result_sort_key
+    """Next queued application, in the same order as the score ranking (scorer.rank_results)."""
+    from src.scorer import rank_results
 
     rows = store.conn.execute(
-        "SELECT a.job_id, j.company, j.location, j.remote, s.fit_score, s.sponsorship_signal "
+        "SELECT a.job_id, j.company, j.location, j.remote, j.posted_at, s.fit_score, s.sponsorship_signal "
         "FROM applications a JOIN apply_queue q ON q.job_id = a.job_id JOIN jobs j ON j.id = a.job_id "
         "JOIN scores s ON s.job_id = a.job_id WHERE a.status = 'queued'").fetchall()
-    rows = sorted((dict(r) for r in rows), key=lambda r: result_sort_key(r, cfg))
+    rows = rank_results([dict(r) for r in rows], cfg)
     return rows[0]["job_id"] if rows else None
 
 

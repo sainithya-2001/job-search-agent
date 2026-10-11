@@ -78,7 +78,7 @@ def cmd_search(args) -> None:
 def cmd_score(args) -> None:
     from src.llm import get_llm
     from src.resume import load_master, profile_text
-    from src.scorer import SYSTEM_TEMPLATE, estimate, result_sort_key, score_jobs, select_jobs, select_mix
+    from src.scorer import SYSTEM_TEMPLATE, estimate, rank_results, score_jobs, select_jobs, select_mix
     from src.sponsorship import SponsorshipDB
 
     cfg = load_config()
@@ -128,7 +128,7 @@ def cmd_score(args) -> None:
     print()
     res = score_jobs(jobs, system, llm, cfg, store, sponsor_db, est)
 
-    rows = sorted(res.scored, key=lambda r: result_sort_key(r, cfg))
+    rows = rank_results(res.scored, cfg)
     print(f"\nActual cost: ${res.spent:.4f} over {res.calls} API calls "
           f"({sum(r['escalated'] for r in res.scored)} escalated to {llm.models['strong']})")
     if res.stopped_early:

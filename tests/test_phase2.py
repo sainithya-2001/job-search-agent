@@ -1,4 +1,5 @@
 import typing
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import yaml
@@ -220,6 +221,51 @@ def _t(name, fit, signal):
 def test_tailor_order_prefers_sponsorship_within_3_points(cfg, rows, expected):
     from src.scorer import tailor_order
     assert [r["id"] for r in tailor_order(rows, cfg)] == expected
+
+
+NOW = datetime(2026, 10, 11, 12, tzinfo=timezone.utc)
+
+
+def _f(name, fit, days_old, signal="unclear"):
+    posted = None if days_old is None else (NOW - timedelta(days=days_old)).isoformat()
+    return {**_t(name, fit, signal), "posted_at": posted}
+
+
+def test_freshness_is_0_to_3_days_and_no_date_is_not_fresh(cfg):
+    from src.scorer import is_fresh
+    assert is_fresh(_f("a", 60, 0), cfg, NOW) and is_fresh(_f("a", 60, 3), cfg, NOW)
+    assert not is_fresh(_f("a", 60, 4), cfg, NOW) and not is_fresh(_f("a", 60, None), cfg, NOW)
+
+
+@pytest.mark.parametrize("rows,expected", [
+    ([_f("a", 75, 10), _f("b", 70, 1)], ["b", "a"]),                 # fresh within 5 points goes first
+    ([_f("a", 76, 10), _f("b", 70, 1)], ["a", "b"]),                 # 6 points apart: fit wins
+    ([_f("a", 72, None), _f("b", 70, 2)], ["b", "a"]),               # no date counts as not fresh
+    ([_f("a", 70, 10, "yes"), _f("b", 70, 10, "unclear"), _f("c", 70, 1, "no")], ["c", "a", "b"]),  # fit, fresh, sponsor
+])
+def test_rank_results_freshness_preference(cfg, rows, expected):
+    from src.scorer import rank_results
+    assert [r["id"] for r in rank_results(rows, cfg, NOW)] == expected
+
+
+def test_ranking_ignores_sponsorship_margin_but_tailoring_uses_it(cfg):
+    from src.scorer import rank_results, tailor_order
+    rows = [_f("a", 70, 10, "unclear"), _f("b", 68, 10, "yes")]
+    assert [r["id"] for r in rank_results(rows, cfg, NOW)] == ["a", "b"]
+    assert [r["id"] for r in tailor_order(rows, cfg, NOW)] == ["b", "a"]
+
+
+@pytest.mark.parametrize("rows,expected", [
+    # fresh beats older-but-sponsoring: sponsorship can't move an old job ahead of a fresh one
+    ([_f("a", 70, 10), _f("b", 67, 1), _f("c", 66, 10, "yes")], ["b", "a", "c"]),
+    # both fresh: sponsorship margin applies between them
+    ([_f("a", 70, 1), _f("b", 68, 2, "yes")], ["b", "a"]),
+    # old yes within 3 of an old job, but a fresh job is ahead of both
+    ([_f("a", 80, 1), _f("b", 75, 10), _f("c", 73, 10, "yes")], ["a", "c", "b"]),
+])
+def test_tailor_order_freshness_outranks_sponsorship(cfg, rows, expected):
+    from src.scorer import tailor_order
+    assert [r["id"] for r in tailor_order(rows, cfg, NOW)] == expected
 
 
 def test_select_mix_buckets_tiers_and_shortfall(cfg):

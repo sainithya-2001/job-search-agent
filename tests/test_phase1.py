@@ -162,9 +162,9 @@ def test_max_posting_age(cfg_filters):
     from datetime import datetime, timezone
     now = datetime(2026, 10, 11, tzinfo=timezone.utc)
     f = JobFilter(cfg_filters, now=now)
-    assert f.check(make_job(posted_at=datetime(2026, 8, 20, tzinfo=timezone.utc))).keep          # 52 days
-    old = f.check(make_job(posted_at=datetime(2026, 8, 1, tzinfo=timezone.utc)))                   # 71 days
-    assert not old.keep and "60 days" in old.reason
+    assert f.check(make_job(posted_at=datetime(2026, 9, 28, tzinfo=timezone.utc))).keep          # 13 days
+    old = f.check(make_job(posted_at=datetime(2026, 9, 25, tzinfo=timezone.utc)))                  # 16 days
+    assert not old.keep and "14 days" in old.reason
     assert f.check(make_job(posted_at=None)).keep                                                   # no date: kept
 
 
@@ -230,6 +230,13 @@ def test_greenhouse_parse():
                          "absolute_url": "u", "content": "&lt;p&gt;Hi&lt;/p&gt;", "first_published": "2026-10-01T00:00:00Z"}]}
     j = greenhouse.parse("Acme", "acme", payload)[0]
     assert (j.id, j.title, j.remote, j.description) == ("greenhouse:acme:9", "AI Engineer", True, "Hi")
+    assert j.posted_at.isoformat().startswith("2026-10-01")
+
+
+def test_greenhouse_never_uses_updated_at_as_posting_date():
+    payload = {"jobs": [{"id": 9, "title": "AI Engineer", "location": {"name": "NYC"}, "absolute_url": "u",
+                         "content": "", "updated_at": "2026-10-10T00:00:00Z"}]}
+    assert greenhouse.parse("Acme", "acme", payload)[0].posted_at is None      # last edit is not a posting date
 
 
 def test_lever_parse():

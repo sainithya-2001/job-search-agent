@@ -39,7 +39,6 @@ agent:
   score_limit: 15               # jobs scored per run
   max_score_cost_usd: 0.15      # scoring's share of the cap, so tailoring always has budget left
   tailor_min_score: 65
-  sponsorship_preference_points: 3   # tailoring order: a sponsorship-"yes" job goes ahead of a non-yes job up to this many fit points higher
   max_tailor_per_run: 5
   agent_reserve_usd: 0.02       # held back from tools so the model can always finish
   est_turn_input_tokens: 4000   # for the dry-run estimate and the per-turn budget check
@@ -84,6 +83,17 @@ tailoring:
   max_run_cost_usd: 0.75     # per `python main.py tailor` run, across all jobs in it
   # Output tokens assumed per call for the estimate (includes thinking).
   est_output_tokens: {draft: 3000, verify: 1500}
+
+# Ordering of results and of tailoring (src/scorer.py). Sort order: fit_score, freshness, sponsorship, tier,
+# location. On top of that, preferred jobs may go ahead of jobs scoring a few points higher:
+#   freshness   (ranking AND tailoring): a job posted within fresh_days goes ahead of an older job scoring up to
+#               freshness_preference_points higher. No reliable date = not fresh.
+#   sponsorship (tailoring only): a sponsorship-"yes" job goes ahead of a non-"yes" job scoring up to
+#               sponsorship_preference_points higher, unless that would put an older job ahead of a fresh one.
+ranking:
+  fresh_days: 3
+  freshness_preference_points: 5
+  sponsorship_preference_points: 3
 
 preferences:
   # Job-location preference. Lower rank = preferred; equal ranks tie. Used to rank jobs, not to filter them.
@@ -262,5 +272,6 @@ filters:
   us_only: true
   remote_allowed_states: [GA, CA, TX]
 
-  # Postings older than this (by the ATS's published date) are dropped. Jobs with no date are kept.
-  max_posting_age_days: 60
+  # Postings older than this are dropped. Dates: Greenhouse first_published, Lever createdAt, Ashby publishedAt
+  # (all original posting dates, never last-updated). Jobs with no reliable date are kept (ranked as not fresh).
+  max_posting_age_days: 14

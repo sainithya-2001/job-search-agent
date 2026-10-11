@@ -136,38 +136,83 @@ def select_mix(rows, cfg: dict) -> tuple[list, list[str]]:
 SPONSOR_ORDER = {"yes": 0, "unclear": 1, "no": 2}
 
 
+def _get(row, key):
+    return row[key] if key in row.keys() else None
+
+
 def sponsor_rank(row) -> int:
     """yes > unclear > no. Missing/unknown counts as unclear. Used for ordering only, never for fit or filtering."""
-    signal = row["sponsorship_signal"] if "sponsorship_signal" in row.keys() else None
-    return SPONSOR_ORDER.get(signal or "unclear", 1)
+    return SPONSOR_ORDER.get(_get(row, "sponsorship_signal") or "unclear", 1)
 
 
-def result_sort_key(row: dict, cfg: dict):
-    """Final ranking: fit_score, then sponsorship signal (yes > unclear > no), then company tier
-    (startup > growth > big_tech), then location priority."""
-    return (-row["fit_score"], sponsor_rank(row), tier_rank(row["company"], company_tiers(cfg)),
+def is_fresh(row, cfg: dict, now: datetime | None = None) -> bool:
+    """Posted within ranking.fresh_days (default 3). No reliable date = not fresh (treated as 4-14 days old)."""
+    posted = _get(row, "posted_at")
+    if not posted:
+        return False
+    posted = datetime.fromisoformat(posted) if isinstance(posted, str) else posted
+    if posted.tzinfo is None:
+        posted = posted.replace(tzinfo=timezone.utc)
+    age = (now or datetime.now(timezone.utc)) - posted
+    return age.total_seconds() <= cfg.get("ranking", {}).get("fresh_days", 3) * 86400
+
+
+def result_sort_key(row: dict, cfg: dict, now: datetime | None = None):
+    """Base order: fit_score, then freshness (posted within fresh_days first), then sponsorship signal
+    (yes > unclear > no), then company tier (startup > growth > big_tech), then location priority."""
+    return (-row["fit_score"], 0 if is_fresh(row, cfg, now) else 1, sponsor_rank(row),
+            tier_rank(row["company"], company_tiers(cfg)),
             location_rank(row["location"], cfg["preferences"]["location_priority"], bool(row.get("remote"))))
 
 
-def tailor_order(rows: list, cfg: dict) -> list:
-    """Order in which to tailor: the result ranking, except that a sponsorship-"yes" job is picked ahead of a
-    non-"yes" job whose fit_score is at most `agent.sponsorship_preference_points` (3) higher.
+def _preferences(cfg: dict, names: list[str], now: datetime | None) -> list[tuple]:
+    r = cfg.get("ranking", {})
+    table = {"fresh": (lambda row: is_fresh(row, cfg, now), r.get("freshness_preference_points", 5)),
+             "sponsorship": (lambda row: sponsor_rank(row) == 0, r.get("sponsorship_preference_points", 3))}
+    return [table[n] for n in names]
 
-    Greedy, one pick at a time: take the top remaining job by result_sort_key; if it isn't "yes" and some "yes" job
-    is within the margin of it, take the best such "yes" job instead. (A plain sort key can't express this: the
-    within-3-points rule isn't transitive.)"""
-    margin = cfg.get("agent", {}).get("sponsorship_preference_points", 3)
-    remaining = sorted(rows, key=lambda r: result_sort_key(r, cfg))
+
+def preference_order(rows: list, cfg: dict, prefs: list[str], now: datetime | None = None) -> list:
+    """The base order (result_sort_key), except a job with a preferred trait goes ahead of a job without it that
+    scores at most that preference's margin higher. Preferences are in priority order: a lower-priority one
+    (sponsorship) never moves a job ahead of one that wins on a higher-priority one (freshness).
+
+    Greedy, one pick at a time: start from the top remaining job and move down to any later job that beats it;
+    repeat from there. Picks only move down the list, so this always terminates. (A plain sort key can't express
+    "within N points": that rule isn't transitive.)"""
+    checks = _preferences(cfg, prefs, now)
+
+    def beats(r, pick) -> bool:
+        for i, (has, margin) in enumerate(checks):
+            within = pick["fit_score"] - r["fit_score"] <= margin
+            not_worse_higher = all(h(r) or not h(pick) for h, _ in checks[:i])
+            if has(r) and not has(pick) and within and not_worse_higher:
+                return True
+        return False
+
+    remaining = sorted(rows, key=lambda r: result_sort_key(r, cfg, now))
     ordered = []
     while remaining:
-        top = remaining[0]
-        if sponsor_rank(top) != 0:
-            yes = [r for r in remaining if sponsor_rank(r) == 0 and top["fit_score"] - r["fit_score"] <= margin]
-            if yes:
-                top = yes[0]                  # remaining is sorted, so this is the best "yes" in range
-        ordered.append(top)
-        remaining.remove(top)
+        i = 0
+        moved = True
+        while moved:
+            moved = False
+            for j in range(i + 1, len(remaining)):
+                if beats(remaining[j], remaining[i]):
+                    i, moved = j, True
+                    break
+        ordered.append(remaining.pop(i))
     return ordered
+
+
+def rank_results(rows: list, cfg: dict, now: datetime | None = None) -> list:
+    """Ranking shown to Nithya and used for the review queue: base order + freshness preference."""
+    return preference_order(rows, cfg, ["fresh"], now)
+
+
+def tailor_order(rows: list, cfg: dict, now: datetime | None = None) -> list:
+    """Order in which jobs are tailored: base order + freshness preference, then sponsorship preference."""
+    return preference_order(rows, cfg, ["fresh", "sponsorship"], now)
 
 
 @dataclass
@@ -254,7 +299,7 @@ def score_jobs(jobs, system: str, llm: LLMProvider, cfg: dict, store, sponsor_db
         }
         store.save_score(row)
         res.scored.append({**row, "company": job["company"], "title": job["title"], "location": job["location"],
-                           "remote": job["remote"], "tier": company.get("tier", "unknown"),
+                           "remote": job["remote"], "posted_at": job["posted_at"], "tier": company.get("tier", "unknown"),
                            "bucket": job["bucket"] if "bucket" in job.keys() else None})
         tag = f"{fast.data.fit_score}->{s.fit_score} (strong)" if final is not fast else f"{s.fit_score}"
         if not quiet:

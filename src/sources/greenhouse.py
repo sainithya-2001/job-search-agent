@@ -21,7 +21,9 @@ def parse(company: str, slug: str, payload: dict) -> list[Job]:
             url=raw.get("absolute_url", ""),
             description=html_to_text(raw.get("content")),
             source="greenhouse",
-            posted_at=parse_datetime(raw.get("first_published") or raw.get("updated_at")),
+            # first_published = when the job was first posted. updated_at is only the last edit (an old job edited
+            # yesterday would look fresh), so it is never used as a fallback: no first_published = no date.
+            posted_at=parse_datetime(raw.get("first_published")),
         ))
     return jobs
 
