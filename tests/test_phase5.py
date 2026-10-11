@@ -89,13 +89,15 @@ def test_example_bank_loads_and_declines_eeo(tmp_path):
 
 
 # ---- shadow gates -----------------------------------------------------------------------------------------------
-GATE_CFG = {"min_fit": 70, "auto_ats": ["greenhouse", "lever"], "max_per_day": 5, "company_cooldown_days": 90}
+GATE_CFG = {"min_fit": 70, "auto_ats": ["greenhouse", "lever"], "max_per_day": 5, "company_window_days": 90,
+            "company_max_applications": 2}
 
 
 def gates(**over):
     m = A.Match("k", "Email", "email", True, A.ANSWERED, "x")
     args = dict(fit_score=80, ats="greenhouse", captcha=[], matches=[m], company="Acme", resume_ok=True,
-                form_loaded=True, history=[], qualifying_today=0, cfg=GATE_CFG, today=date(2026, 10, 11))
+                form_loaded=True, history=[], qualifying_today=0, cfg=GATE_CFG, today=date(2026, 10, 11),
+                role_family="ai_solutions", job_id="new")
     return {g.name: g for g in evaluate(**{**args, **over})}
 
 
@@ -122,13 +124,25 @@ def test_optional_bank_skips_are_allowed_required_are_not():
     assert gates(matches=[skip_opt])["all_matched"].passed
 
 
-def test_company_cooldown_counts_manual_applications_for_90_days():
-    hist = [{"company": "Acme", "status": "applied", "date_applied": "2026-07-14", "review_outcome": "manual"}]
-    assert not gates(history=hist)["company_cooldown"].passed                 # 89 days ago
-    hist[0]["date_applied"] = "2026-07-12"                                    # 91 days ago
-    assert gates(history=hist)["company_cooldown"].passed
-    hist = [{"company": "Acme", "status": "skipped", "date_applied": None}]
-    assert gates(history=hist)["company_cooldown"].passed                     # skipped isn't an application
+def _app(day, family, status="applied", job_id="old"):
+    return {"job_id": job_id, "company": "Acme", "status": status, "date_applied": day, "role_family": family}
+
+
+def test_company_limit_two_per_90_days_in_different_role_families():
+    # same family within 90 days (manual counts): blocked; 91 days ago: allowed
+    assert not gates(history=[_app("2026-07-14", "ai_solutions")])["company_limit"].passed     # 89 days ago
+    assert gates(history=[_app("2026-07-12", "ai_solutions")])["company_limit"].passed         # 91 days ago
+    # e.g. Cresta: AI Strategist (ai_consultant) applied, Enterprise Solutions Engineer (ai_solutions) allowed
+    assert gates(history=[_app("2026-10-01", "ai_consultant")])["company_limit"].passed
+    # a third application is blocked even in a new family
+    two = [_app("2026-10-01", "ai_consultant", job_id="a"), _app("2026-10-02", "ai_eval", job_id="b")]
+    assert not gates(history=two)["company_limit"].passed
+    # unknown role family on either side counts as a match (conservative)
+    assert not gates(history=[_app("2026-10-01", None)])["company_limit"].passed
+    assert not gates(history=[_app("2026-10-01", "ai_consultant")], role_family=None)["company_limit"].passed
+    # skipped isn't an application; the job's own row doesn't count against itself
+    assert gates(history=[_app(None, "ai_solutions", status="skipped")])["company_limit"].passed
+    assert gates(history=[_app("2026-10-01", "ai_solutions", job_id="new")])["company_limit"].passed
 
 
 def test_auto_submit_true_is_rejected():
@@ -285,7 +299,7 @@ def test_confirm_manual_application_counts_for_cooldown(db):
     row = db.application("j1")
     assert row["status"] == "applied" and row["review_outcome"] == "manual" and row["date_applied"]
     g = gates(history=[dict(r) for r in db.applications()], today=date.fromisoformat(row["date_applied"]))
-    assert not g["company_cooldown"].passed
+    assert not g["company_limit"].passed           # j1 has no role family on record: counted as same family
 
 
 # ---- sheets -----------------------------------------------------------------------------------------------------

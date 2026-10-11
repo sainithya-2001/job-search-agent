@@ -313,3 +313,41 @@ def test_jsearch_parse_and_staffing_filter(cfg):
     assert dropped == 1 and [j.company for j in jobs] == ["Acme AI", "Boston Consulting Group"]
     assert jobs[0].location == "Atlanta, GA, US" and jobs[0].id == "jsearch:a1"
     assert jobs[1].location == "Remote - US" and jobs[1].remote
+
+
+def test_jsearch_prefers_direct_ats_apply_link():
+    from src.sources import jsearch
+    raw = {"job_apply_link": "https://www.linkedin.com/jobs/view/1",
+           "apply_options": [{"publisher": "LinkedIn", "apply_link": "https://www.linkedin.com/jobs/view/1"},
+                             {"publisher": "Acme", "apply_link": "https://job-boards.greenhouse.io/acme/jobs/9"}]}
+    assert jsearch.apply_url(raw) == "https://job-boards.greenhouse.io/acme/jobs/9"
+    assert jsearch.apply_url({"job_apply_link": "https://x.com/apply"}) == "https://x.com/apply"
+
+
+def test_jsearch_runs_each_query_in_each_location(cfg):
+    from src.sources import jsearch
+    js = cfg["jsearch"]
+    pairs = jsearch.requests_planned(js)
+    assert len(pairs) == len(js["queries"]) * 4
+    assert {loc["name"] for _, loc in pairs} == {"Atlanta, GA", "California", "Texas", "US remote"}
+    assert js["date_posted"] == "month"          # covers the 14-day window; the age filter does the rest
+
+
+def test_jsearch_fetch_sends_location_and_remote_params(cfg):
+    import asyncio
+    import httpx
+    from src.sources import jsearch
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"data": []})
+
+    js = {**cfg["jsearch"], "queries": ["AI Engineer"]}
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await jsearch.fetch(c, js, "k")
+    asyncio.run(go())
+    assert [p["query"] for p in seen] == ["AI Engineer in Atlanta, GA", "AI Engineer in California",
+                                          "AI Engineer in Texas", "AI Engineer"]
+    assert seen[-1].get("work_from_home") == "true" and "work_from_home" not in seen[0]

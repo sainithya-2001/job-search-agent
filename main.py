@@ -57,6 +57,10 @@ def cmd_search(args) -> None:
     if res.relabel:
         print("Existing unscored jobs re-checked: " + ", ".join(f"{n} -> {k}" for k, n in res.relabel.items()))
     print("Ready to score (status new): " + str(store.count("new")))
+    js_new = Counter(j.company for j in new if j.source == "jsearch")
+    if js_new:
+        print(f"New from JSearch: {sum(js_new.values())} jobs from {len(js_new)} companies: "
+              + ", ".join(f"{c} ({n})" for c, n in js_new.most_common()))
 
     # "Top" before scoring = role family priority, company tier, location priority, newest.
     priority = {fam["name"]: i for i, fam in enumerate(cfg["filters"]["role_families"])}

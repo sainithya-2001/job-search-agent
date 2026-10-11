@@ -172,7 +172,8 @@ def test_max_posting_age(cfg_filters):
                                    "AI Infrastructure Engineer", "AI Security Engineer", "SRE, LLM", "DevOps AI Engineer",
                                    "Systems Engineer, Enterprise AI", "Staff Solutions Engineer", "Director, AI Strategy",
                                    "Network Operations Engineer, AI Networking", "Research Engineer, AI for Chip Design",
-                                   "AI Hardware Engineer"])
+                                   "AI Hardware Engineer", "Senior iOS Engineer, Ambient AI", "Android Engineer, GenAI",
+                                   "Mobile ML Engineer"])
 def test_excluded_specialties_even_with_ai(jf, title):
     assert not jf.check(make_job(title=title)).keep
 

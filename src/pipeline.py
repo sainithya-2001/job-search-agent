@@ -63,8 +63,10 @@ def run_search(cfg: dict, store: Store, *, save: bool = True) -> SearchResult:
                 return await jsearch.fetch(client, js_cfg, js_key)
         js_jobs, js_dropped, js_errors = asyncio.run(_js())
         fetched.jobs.extend(js_jobs)
-        res.notes.append(f"JSearch: {len(js_jobs)} jobs from {len(js_cfg['queries'])} queries "
-                         f"({js_dropped} dropped as staffing/excluded employers)")
+        n_req = len(jsearch.requests_planned(js_cfg))
+        res.notes.append(f"JSearch: {len(js_jobs)} jobs from {n_req} requests ({len(js_cfg['queries'])} queries x "
+                         f"{len(js_cfg.get('locations') or [1])} locations; {js_dropped} dropped as staffing/excluded "
+                         f"employers)")
         res.notes += [f"! {e}" for e in js_errors]
     else:
         res.notes.append("JSearch: skipped (" + ("disabled in config" if not js_cfg.get("enabled")

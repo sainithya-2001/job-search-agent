@@ -23,7 +23,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
 - Postings that require US citizenship ("must be a US citizen", "US citizens only") or a security clearance
 - Sponsorship statements ("no sponsorship", "must be authorized to work without sponsorship") are NOT excluded (2026-10-11)
 - Export-control / US-person requirements: "export controlled", ITAR, EAR, "U.S. person", "permanent resident", "green card" (except positive mentions like "green card sponsorship")
-- Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps (even with AI in the title); Staff, Principal, Lead, Director. Senior is kept.
+- Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps, network operations, chip design, hardware, mobile, iOS, Android (even with AI in the title); Staff, Principal, Lead, Director. Senior is kept.
 - Duplicates (same company + normalized title)
 - Postings older than 14 days (filters.max_posting_age_days). Jobs with no reliable date are kept and treated as 4-14 days old (not fresh).
 
@@ -121,7 +121,7 @@ job-agent/
 - Review mode is the only mode. `queue` reads each tailored job's form headlessly (Greenhouse, Lever, Ashby) and records how much the bank covers. `review` opens the form in a visible browser, pre-fills exact matches, attaches the verified tailored PDF, outlines what's left, and hands over: Nithya reviews and clicks Submit herself. `confirm <job_id> --applied|--skipped` records the result (also for applications she submitted by hand).
 - Never submit. No code clicks a submit control (safe_click refuses submit-like buttons) and submissions are blocked while the agent fills. Never touch LinkedIn/Indeed. Never attempt to solve or bypass a CAPTCHA.
 - Log for each application whether Nithya approved unchanged or edited (form snapshot after pre-fill vs at her Submit click; edited questions listed; edits to bank answers flagged).
-- Shadow-mode auto-submit gates (config.yaml `apply`, auto_submit: false; there is no submit code and true is rejected): record whether an application WOULD qualify: fit >= 70, Greenhouse or Lever, no CAPTCHA of any kind, every question matched exactly from the bank, no long-answer box (short text fields are fine if matched exactly), at most 5 per day, no application to the same company in 90 days (manual ones included), verified one-page resume, posting open. Everything goes to the review queue regardless.
+- Shadow-mode auto-submit gates (config.yaml `apply`, auto_submit: false; there is no submit code and true is rejected): record whether an application WOULD qualify: fit >= 70, Greenhouse or Lever, no CAPTCHA of any kind, every question matched exactly from the bank, no long-answer box (short text fields are fine if matched exactly), at most 5 per day, at most 2 applications per company in 90 days and only in different role families (manual ones included; an unknown role family counts as the same), verified one-page resume, posting open. Everything goes to the review queue regardless.
 - sheets.py: columns = job_id, date_found, company, role, location, url, fit_score, sponsorship, matched_skills, gaps, resume_file, status, date_applied, review_outcome, notes. Upsert by job id. SQLite `applications` is the source of truth; the sheet is synced from it.
 - Done when: one real application is pre-filled and the sheet row updates to "applied" after she confirms.
 

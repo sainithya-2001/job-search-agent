@@ -65,7 +65,11 @@ def _pdf_pages(pdf: Path) -> int:
 
 
 def _history(store: Store) -> list[dict]:
-    return [dict(r) for r in store.applications()]
+    """Every logged application with its role family (from the score, falling back to the title filter's hint)."""
+    rows = store.conn.execute(
+        "SELECT a.*, COALESCE(s.role_family, j.role_hint) AS role_family FROM applications a "
+        "LEFT JOIN scores s ON s.job_id = a.job_id LEFT JOIN jobs j ON j.id = a.job_id").fetchall()
+    return [dict(r) for r in rows]
 
 
 def _qualifying_today(store: Store, exclude: str) -> int:
@@ -123,11 +127,12 @@ def _queue_one(browser, job, store: Store, bank: AnswerBank, acfg: dict) -> dict
         page.close()
     bank.tokens["@resume"] = str(pdf) if pdf else None
     matches = match_form(questions, bank)
-    fit = store.conn.execute("SELECT fit_score FROM scores WHERE job_id=?", (job["id"],)).fetchone()
+    fit = store.conn.execute("SELECT fit_score, role_family FROM scores WHERE job_id=?", (job["id"],)).fetchone()
     gates = evaluate(fit_score=fit["fit_score"] if fit else None, ats=ats, captcha=captcha, matches=matches,
                      company=job["company"], resume_ok=bool(pdf) and _pdf_pages(pdf) == 1,
                      form_loaded=bool(questions), history=_history(store),
-                     qualifying_today=_qualifying_today(store, job["id"]), cfg=acfg)
+                     qualifying_today=_qualifying_today(store, job["id"]), cfg=acfg, job_id=job["id"],
+                     role_family=(fit["role_family"] if fit else None) or job["role_hint"])
     ok = qualifies(gates)
     answered = sum(m.status in (ANSWERED, SKIPPED) for m in matches)
     store.save_queue({"job_id": job["id"], "ats": ats, "form_url": url,

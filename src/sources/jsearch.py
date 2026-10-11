@@ -39,22 +39,45 @@ def parse(payload: dict, exclude_employers: list[str] | None = None) -> tuple[li
             title=(raw.get("job_title") or "").strip(),
             location=location,
             remote=remote,
-            url=raw.get("job_apply_link") or "",
+            url=apply_url(raw),
             description=raw.get("job_description") or "",
             source="jsearch",
+            # When the aggregator says the job was posted (it can't tell a re-post from a new post).
             posted_at=parse_datetime(raw.get("job_posted_at_datetime_utc")),
             employment_type=raw.get("job_employment_type"),
         ))
     return jobs, dropped
 
 
+ATS_HOSTS = ("greenhouse.io", "lever.co", "ashbyhq.com")
+
+
+def apply_url(raw: dict) -> str:
+    """Prefer a direct Greenhouse/Lever/Ashby apply link (the forms Phase 5 can pre-fill) over the aggregator's
+    default link, which is often LinkedIn or Indeed (never automated)."""
+    for opt in raw.get("apply_options") or []:
+        link = opt.get("apply_link") or ""
+        if any(h in link for h in ATS_HOSTS):
+            return link
+    return raw.get("job_apply_link") or ""
+
+
+def requests_planned(cfg: dict) -> list[tuple[str, dict]]:
+    """Every (query, location) pair = one API request."""
+    locations = cfg.get("locations") or [{"name": "US", "query": ""}]
+    return [(q, loc) for q in cfg["queries"] for loc in locations]
+
+
 async def fetch(client: httpx.AsyncClient, cfg: dict, key: str) -> tuple[list[Job], int, list[str]]:
-    """Run every configured query. -> (jobs, dropped, errors)"""
+    """Run every configured query in every configured location. -> (jobs, dropped, errors)"""
     jobs, dropped, errors = [], 0, []
     headers = {"X-RapidAPI-Key": key, "X-RapidAPI-Host": HOST}
-    for query in cfg["queries"]:
-        params = {"query": query, "page": 1, "num_pages": cfg.get("pages_per_query", 1),
+    for query, loc in requests_planned(cfg):
+        text = f"{query} {loc.get('query', '')}".strip()
+        params = {"query": text, "page": 1, "num_pages": cfg.get("pages_per_query", 1),
                   "country": "us", "date_posted": cfg.get("date_posted", "week")}
+        if loc.get("remote"):
+            params["work_from_home"] = "true"
         try:
             resp = await client.get(URL, params=params, headers=headers)
             resp.raise_for_status()
@@ -62,5 +85,5 @@ async def fetch(client: httpx.AsyncClient, cfg: dict, key: str) -> tuple[list[Jo
             jobs += got
             dropped += d
         except Exception as e:  # noqa: BLE001 — one failed query shouldn't sink the run
-            errors.append(f"jsearch '{query}': {type(e).__name__}: {e}")
+            errors.append(f"jsearch '{text}': {type(e).__name__}: {e}")
     return jobs, dropped, errors

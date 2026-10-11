@@ -52,7 +52,8 @@ apply:
   min_fit: 70
   auto_ats: [greenhouse, lever]
   max_per_day: 5
-  company_cooldown_days: 90     # counts every application to the company, manual ones included
+  company_window_days: 90       # per company, per window: counts every application, manual ones included
+  company_max_applications: 2   # ...and a 2nd one only for a different role family than the 1st
 
 tailoring:
   # Headline = optional role label + skills from master_resume.yaml. The label must come from the list for the
@@ -253,8 +254,14 @@ companies:
 jsearch:
   # Aggregator source (RapidAPI). Runs only when enabled AND JSEARCH_API_KEY is set in .env.
   enabled: true
-  date_posted: week          # all | today | 3days | week | month
-  pages_per_query: 1         # ~10 jobs per page; each query = 1 API request
+  date_posted: month         # JSearch buckets: all | today | 3days | week | month. "month" covers 14 days; the
+                             # 14-day filters.max_posting_age_days then applies like every other source.
+  pages_per_query: 1         # ~10 jobs per page; each query x location = 1 API request (8 x 4 = 32 per search)
+  locations:                 # every query runs once per location
+    - {name: "Atlanta, GA", query: "in Atlanta, GA"}
+    - {name: California,   query: "in California"}
+    - {name: Texas,        query: "in Texas"}
+    - {name: US remote,    query: "",  remote: true}
   queries:
     - AI Engineer
     - Applied AI Engineer
@@ -299,11 +306,12 @@ filters:
                   # Engineering specialties outside the target roles — dropped even when the title says AI.
                   '\bfront[- ]?end\b', '\bfull[- ]?stack\b', '\binfrastructure\b', '\binfra\b', '\bplatform\b',
                   '\bsecurity\b', '\bappsec\b', '\bsystems? engineer', '\bsre\b', '\bsite reliability\b', '\bdevops\b',
-                  '\bnetwork operations\b', '\bchip design\b', '\bhardware\b']
+                  '\bnetwork operations\b', '\bchip design\b', '\bhardware\b',
+                  '\bmobile\b', '\bios\b', '\bandroid\b']
 
   # Other specialties dropped UNLESS the title also matches `ai_title_terms`
   # ("Backend Engineer" is dropped; "Backend Engineer, LLM" is kept).
-  title_exclude_unless_ai: ['\bmobile\b', '\bios\b', '\bandroid\b', '\bembedded\b', '\bfirmware\b', '\bback[- ]?end\b']
+  title_exclude_unless_ai: ['\bembedded\b', '\bfirmware\b', '\bback[- ]?end\b']
   ai_title_terms: ['\bai\b', '\bml\b', '\bmachine learning\b', '\bllms?\b', '\bgen ?ai\b']
 
   # Description phrases that disqualify a posting (citizenship, clearance, export control, staffing/contract).

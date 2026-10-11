@@ -7,8 +7,8 @@ building a submit path. Every application goes to the review queue regardless of
 An application qualifies only if ALL gates pass:
   fit_score >= apply.min_fit (70) | ATS is Greenhouse or Lever | no CAPTCHA of any kind on the page |
   every question matched exactly from the answer bank (optional ones may be bank-skipped) |
-  no long-answer box | fewer than apply.max_per_day qualifying today | no application to the same company in the
-  last apply.company_cooldown_days (90) days, manual ones included | resume verified (PASS) with a one-page PDF |
+  no long-answer box | fewer than apply.max_per_day qualifying today | at most 2 applications per company in
+  90 days, in different role families (apply.company_*), manual ones included | resume verified (PASS) with a one-page PDF |
   posting still open (the form loaded)
 """
 from __future__ import annotations
@@ -38,17 +38,16 @@ class Gate:
 
 def evaluate(*, fit_score: int | None, ats: str, captcha: list[str], matches: list[Match], company: str,
              resume_ok: bool, form_loaded: bool, history: list[dict], qualifying_today: int, cfg: dict,
-             today: date | None = None) -> list[Gate]:
-    """history: rows of {company, status, date_applied} for every logged application (manual ones included)."""
+             role_family: str | None = None, job_id: str | None = None, today: date | None = None) -> list[Gate]:
+    """history: rows of {job_id, company, role_family, status, date_applied} for every logged application
+    (manual ones included)."""
     today = today or date.today()
     min_fit, allowed = cfg.get("min_fit", 70), cfg.get("auto_ats", ["greenhouse", "lever"])
-    per_day, cooldown = cfg.get("max_per_day", 5), cfg.get("company_cooldown_days", 90)
+    per_day = cfg.get("max_per_day", 5)
 
     unmatched = [m.label for m in matches if not (m.status == ANSWERED or (m.status == SKIPPED and not m.required))]
     long_answers = [m.label for m in matches if m.kind == "textarea"]
-    since = today - timedelta(days=cooldown)
-    recent = [h for h in history if h["company"] == company and h.get("status") == "applied"
-              and h.get("date_applied") and date.fromisoformat(h["date_applied"][:10]) >= since]
+    company_ok, company_detail = company_limit(history, company, role_family, job_id, cfg, today)
 
     return [
         Gate("fit_score", fit_score is not None and fit_score >= min_fit, f"{fit_score} (needs >= {min_fit})"),
@@ -58,11 +57,31 @@ def evaluate(*, fit_score: int | None, ats: str, captcha: list[str], matches: li
              f"{len(unmatched)} not matched exactly: {'; '.join(unmatched[:6])}" if unmatched else "all matched"),
         Gate("no_long_answer", not long_answers, "; ".join(long_answers[:4]) or "none"),
         Gate("daily_cap", qualifying_today < per_day, f"{qualifying_today} qualified today (max {per_day})"),
-        Gate("company_cooldown", not recent,
-             f"applied {recent[0]['date_applied'][:10]}" if recent else f"no application in {cooldown} days"),
+        Gate("company_limit", company_ok, company_detail),
         Gate("resume_verified", resume_ok, "PASS, one page" if resume_ok else "no verified one-page PDF"),
         Gate("posting_open", form_loaded, "form loaded" if form_loaded else "form not found"),
     ]
+
+
+def company_limit(history: list[dict], company: str, role_family: str | None, job_id: str | None, cfg: dict,
+                  today: date) -> tuple[bool, str]:
+    """At most apply.company_max_applications (2) applications to one company per apply.company_window_days (90),
+    and only in different role families. Manual applications count. An unknown role family counts as a match
+    (conservative)."""
+    days, cap = cfg.get("company_window_days", 90), cfg.get("company_max_applications", 2)
+    since = today - timedelta(days=days)
+    recent = [h for h in history if h["company"] == company and h.get("status") == "applied"
+              and h.get("job_id") != job_id
+              and h.get("date_applied") and date.fromisoformat(h["date_applied"][:10]) >= since]
+    if len(recent) >= cap:
+        return False, f"already {len(recent)} applications to {company} in {days} days (max {cap})"
+    same = [h for h in recent if not role_family or not h.get("role_family") or h["role_family"] == role_family]
+    if same:
+        return False, (f"already applied to a {same[0].get('role_family') or 'unknown-family'} role at {company} on "
+                       f"{same[0]['date_applied'][:10]} (a 2nd application must be a different role family)")
+    if recent:
+        return True, f"1 earlier application ({recent[0]['role_family']}); this one is {role_family}"
+    return True, f"no application to {company} in {days} days"
 
 
 def qualifies(gates: list[Gate]) -> bool:
