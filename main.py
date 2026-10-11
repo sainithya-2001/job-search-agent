@@ -85,7 +85,20 @@ def cmd_score(args) -> None:
     limit = args.limit or cfg["scoring"]["default_limit"]
     cap = cfg["scoring"]["max_run_cost_usd"]
     store = Store(ROOT / "data" / "jobs.db")
-    if args.mix:
+    previous = {}
+    if args.job_ids:
+        # Re-score specific jobs (e.g. after a prompt change). The new score replaces the old one; the old one is
+        # printed alongside for comparison. Tailored jobs keep their status.
+        jobs = []
+        for jid in args.job_ids:
+            row = store.conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+            if row is None:
+                print(f"Unknown job id: {jid}")
+                return
+            old = store.conn.execute("SELECT fit_score FROM scores WHERE job_id=?", (jid,)).fetchone()
+            previous[jid] = old["fit_score"] if old else None
+            jobs.append(row)
+    elif args.mix:
         jobs, notes = select_mix(store.unscored_jobs(), cfg)
         mix = cfg["scoring"]["mix"]
         print(f"Mix selection from tiers {mix['tiers']}: "
@@ -123,9 +136,10 @@ def cmd_score(args) -> None:
     print(f"\n{'#':>2}  {'Company':16s} {'Tier':8s} {'Title':44s} {'Location':24s} {'Rem':3s} {'Fit':>3}  "
           f"{'Sponsor':7s}  Reason")
     for i, r in enumerate(rows, 1):
+        was = f"(was {previous[r['job_id']]}) " if r["job_id"] in previous else ""
         print(f"{i:2d}  {r['company'][:16]:16s} {r['tier'][:8]:8s} {r['title'][:44]:44s} {r['location'][:24]:24s} "
               f"{'yes' if r['remote'] else 'no':3s} {r['fit_score']:3d}  {r['sponsorship_signal']:7s}  "
-              f"{r['one_line_reason']}")
+              f"{was}{r['one_line_reason']}")
     store.close()
 
 
@@ -323,6 +337,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("score", help="LLM-score the most relevant unscored jobs")
     p.add_argument("--limit", type=int, default=None, help="jobs to score (default: scoring.default_limit)")
     p.add_argument("--mix", action="store_true", help="pick jobs per scoring.mix buckets instead of top-N")
+    p.add_argument("--job-ids", nargs="+", help="re-score these jobs (replaces their current scores)")
     p.set_defaults(func=cmd_score)
     p = sub.add_parser("tailor", help="Tailor + verify resumes for job ids (HTML; --pdf for PDF)")
     p.add_argument("job_ids", nargs="+")

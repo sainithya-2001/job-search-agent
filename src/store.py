@@ -208,7 +208,8 @@ class Store:
         marks = ", ".join("?" for _ in row)
         with self.conn:
             self.conn.execute(f"INSERT OR REPLACE INTO scores ({cols}) VALUES ({marks})", tuple(row.values()))
-            self.conn.execute("UPDATE jobs SET status='scored' WHERE id=?", (row["job_id"],))
+            # Only new jobs move to 'scored'; re-scoring never moves a tailored/applied job backwards.
+            self.conn.execute("UPDATE jobs SET status='scored' WHERE id=? AND status='new'", (row["job_id"],))
 
     def close(self) -> None:
         self.conn.close()
