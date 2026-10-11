@@ -4,11 +4,34 @@ llm:
   provider: anthropic          # gemini | anthropic  <- the one line to change to switch providers
   models:                   # "fast" = first-pass scoring of every job; "strong" = re-score jobs >= escalate_threshold
     gemini:    {fast: gemini-3.5-flash-lite, strong: gemini-3.8-flash}     
-    anthropic: {fast: claude-haiku-5-5,     strong: claude-sonnet-5-5}
+    anthropic: {fast: claude-haiku-5-5,     strong: claude-sonnet-5-5, effort: {fast: low, strong: medium}}
   retry: {max_attempts: 5, base_delay: 2, max_delay: 60}   # seconds; applies to 429 / 5xx / network errors
+  # USD per 1M tokens (Anthropic list prices, 2026-10). Haiku's price applies to prompts up to 100K tokens.
+  # Models missing here report cost as unknown.
+  pricing:
+    claude-haiku-5-5:  {input: 0.10, output: 0.50}
+    claude-sonnet-5-5: {input: 2.00, output: 10.00}
+    claude-opus-5-5:   {input: 4.00, output: 20.00}
 
 scoring:
   escalate_threshold: 60    # fast-tier fit_score at or above this gets re-scored by the strong tier
+  default_limit: 20         # jobs scored per `python main.py score` run unless --limit is given
+  max_per_company: 3        # diversity cap when picking which jobs to score
+  max_run_cost_usd: 0.50    # refuse to start if the worst-case estimate exceeds this; stop mid-run if actual does
+  # Output tokens assumed per call for the estimate (includes thinking, which bills as output).
+  est_output_tokens: {fast: 1500, strong: 3000}
+
+tailoring:
+  # Headline = optional role label + skills from master_resume.yaml. The label must come from the list for the
+  # job's role family (the families in filters.role_families). No other labels; no seniority words.
+  headline_role_labels:
+    ai_engineer:      [AI Engineer, Applied AI]
+    ai_solutions:     [AI Solutions Engineer]
+    forward_deployed: [Forward Deployed Engineer]
+    ai_consultant:    [AI Consultant]
+    ai_eval:          [AI Evaluation]
+    analyst_backup:   [Data Analyst, Business Analyst, Analytics Engineer]
+  headline_forbidden_words: [Senior, Lead, Principal, Staff]
 
 preferences:
   # Job-location preference, highest first. Used to rank jobs, not to filter them (filters.us_only does that).

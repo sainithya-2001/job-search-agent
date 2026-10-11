@@ -62,12 +62,60 @@ def cmd_search(args) -> None:
     store.close()
 
 
+def cmd_score(args) -> None:
+    from src.llm import get_llm
+    from src.resume import load_master, profile_text
+    from src.scorer import SYSTEM_TEMPLATE, estimate, location_rank, score_jobs, select_jobs
+    from src.sponsorship import SponsorshipDB
+
+    cfg = load_config()
+    limit = args.limit or cfg["scoring"]["default_limit"]
+    cap = cfg["scoring"]["max_run_cost_usd"]
+    store = Store(ROOT / "data" / "jobs.db")
+    jobs = select_jobs(store.unscored_jobs(), cfg, limit)
+    if not jobs:
+        print("No unscored jobs. Run `python main.py search` first.")
+        return
+
+    system = SYSTEM_TEMPLATE.format(profile=profile_text(load_master(ROOT / "data" / "master_resume.yaml")))
+    llm = get_llm(cfg)
+    est = estimate(jobs, system, llm, cfg)
+    print(f"Scoring {len(jobs)} jobs  |  fast: {llm.models['fast']}  strong (>= {cfg['scoring']['escalate_threshold']}): "
+          f"{llm.models['strong']}")
+    print(f"Estimated cost: ~${est.expected:.3f} expected (half escalate), ${est.worst:.3f} if all escalate  "
+          f"|  run cap ${cap:.2f}")
+    if est.expected > cap:
+        print(f"Refusing to run: expected cost exceeds the cap. Use a smaller --limit or raise scoring.max_run_cost_usd.")
+        return
+
+    sponsor_db = SponsorshipDB(ROOT / "data" / "uscis")
+    if not sponsor_db.loaded:
+        print("USCIS: no files in data/uscis/ — cross-check will report no_data.")
+    print()
+    res = score_jobs(jobs, system, llm, cfg, store, sponsor_db, est)
+
+    tiers = cfg["preferences"]["location_priority"]
+    rows = sorted(res.scored, key=lambda r: (-r["fit_score"], location_rank(r["location"], tiers)))
+    print(f"\nActual cost: ${res.spent:.4f} over {res.calls} API calls "
+          f"({sum(r['escalated'] for r in res.scored)} escalated to {llm.models['strong']})")
+    if res.stopped_early:
+        print(f"Stopped early: {res.stopped_early}")
+    print(f"\n{'#':>2}  {'Company':14s} {'Title':46s} {'Location':24s} {'Fit':>3}  {'Sponsor':7s}  Reason")
+    for i, r in enumerate(rows, 1):
+        print(f"{i:2d}  {r['company'][:14]:14s} {r['title'][:46]:46s} {r['location'][:24]:24s} "
+              f"{r['fit_score']:3d}  {r['sponsorship_signal']:7s}  {r['one_line_reason']}")
+    store.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="job-agent")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("search", help="Fetch boards, filter, save new jobs")
     p.add_argument("--top", type=int, default=10)
     p.set_defaults(func=cmd_search)
+    p = sub.add_parser("score", help="LLM-score the most relevant unscored jobs")
+    p.add_argument("--limit", type=int, default=None, help="jobs to score (default: scoring.default_limit)")
+    p.set_defaults(func=cmd_score)
 
     args = parser.parse_args(argv)
     args.func(args)

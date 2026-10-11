@@ -75,7 +75,7 @@ class LLMProvider(ABC):
         start = time.monotonic()
         for attempt in range(1, self.max_attempts + 1):
             try:
-                data, in_tok, out_tok = self._call(model, prompt, schema, system)
+                data, in_tok, out_tok = self._call(model, tier, prompt, schema, system)
                 return LLMResponse(data, model, in_tok, out_tok, time.monotonic() - start, attempt)
             except Exception as exc:  # noqa: BLE001 — classified below
                 hint = self._retry_hint(exc)
@@ -91,7 +91,7 @@ class LLMProvider(ABC):
         raise AssertionError("unreachable")
 
     @abstractmethod
-    def _call(self, model: str, prompt: str, schema: type[T], system: str | None) -> tuple[T, int, int]:
+    def _call(self, model: str, tier: Tier, prompt: str, schema: type[T], system: str | None) -> tuple[T, int, int]:
         """One raw API call -> (parsed object, input tokens, output tokens)."""
 
     @abstractmethod
@@ -109,7 +109,7 @@ class GeminiProvider(LLMProvider):
         self._genai = genai
         self.client = genai.Client(api_key=_require_env("GEMINI_API_KEY"))
 
-    def _call(self, model, prompt, schema, system):
+    def _call(self, model, tier, prompt, schema, system):
         from google.genai import types
 
         resp = self.client.models.generate_content(
@@ -161,8 +161,12 @@ class AnthropicProvider(LLMProvider):
         self._anthropic = anthropic
         self.client = anthropic.Anthropic(api_key=_require_env("ANTHROPIC_API_KEY"), max_retries=0)
 
-    def _call(self, model, prompt, schema, system):
+    def _call(self, model, tier, prompt, schema, system):
         kwargs = {"system": system} if system else {}
+        # Effort controls how much the model thinks; thinking tokens bill as output, so it's the main cost lever.
+        effort = (self.models.get("effort") or {}).get(tier)
+        if effort:
+            kwargs["output_config"] = {"effort": effort}   # the SDK merges output_format into this
         resp = self.client.messages.parse(
             model=model,
             max_tokens=16000,
@@ -189,6 +193,19 @@ class AnthropicProvider(LLMProvider):
 
 
 PROVIDERS: dict[str, type[LLMProvider]] = {"gemini": GeminiProvider, "anthropic": AnthropicProvider}
+
+
+def cost_usd(model: str, input_tokens: int, output_tokens: int, pricing: dict) -> float | None:
+    """Dollar cost from config.yaml llm.pricing (USD per 1M tokens). None if the model has no price listed."""
+    p = pricing.get(model)
+    if not p:
+        return None
+    return (input_tokens * p["input"] + output_tokens * p["output"]) / 1_000_000
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough, deliberately high token estimate (~3.5 chars/token) for pre-run cost estimates."""
+    return int(len(text) / 3.5) + 1
 
 
 def get_llm(cfg: dict) -> LLMProvider:

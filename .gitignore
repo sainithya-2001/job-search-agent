@@ -16,3 +16,6 @@ logs/
 # personal resume sources and the master resume built from them (contain contact info)
 data/resumes/
 data/master_resume.yaml
+
+# USCIS H-1B Employer Data Hub exports (large, downloaded manually)
+data/uscis/

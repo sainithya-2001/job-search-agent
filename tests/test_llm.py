@@ -22,7 +22,7 @@ class FakeProvider(LLMProvider):
         super().__init__({"fast": "f-model", "strong": "s-model"}, {"max_attempts": 3, "base_delay": 0, "max_delay": 0})
         self.fail_times, self.retryable, self.calls = fail_times, retryable, []
 
-    def _call(self, model, prompt, schema, system):
+    def _call(self, model, tier, prompt, schema, system):
         self.calls.append(model)
         if len(self.calls) <= self.fail_times:
             raise Transient("boom")

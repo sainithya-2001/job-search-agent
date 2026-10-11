@@ -28,6 +28,30 @@ CREATE TABLE IF NOT EXISTS jobs (
     first_seen_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+
+-- One row per scored job. fit_score etc. are the FINAL values (strong tier if escalated, else fast tier);
+-- fast_score is kept so we can see how often and how much escalation changes the answer.
+CREATE TABLE IF NOT EXISTS scores (
+    job_id             TEXT PRIMARY KEY REFERENCES jobs(id),
+    fit_score          INTEGER NOT NULL,
+    fast_score         INTEGER NOT NULL,
+    escalated          INTEGER NOT NULL,
+    model              TEXT NOT NULL,          -- model that produced the final score
+    role_family        TEXT,
+    matched_skills     TEXT,                   -- JSON list
+    gaps               TEXT,                   -- JSON list
+    sponsorship_signal TEXT,                   -- yes / no / unclear (from the posting text)
+    sponsorship_quote  TEXT,
+    uscis_status       TEXT,                   -- sponsor / zero_approvals / not_found / no_data
+    uscis_approvals    INTEGER,
+    is_staffing_firm   INTEGER,
+    seniority_ok       INTEGER,
+    one_line_reason    TEXT,
+    input_tokens       INTEGER,
+    output_tokens      INTEGER,
+    cost_usd           REAL,
+    scored_at          TEXT NOT NULL
+);
 """
 
 
@@ -81,6 +105,17 @@ class Store:
     def set_status(self, job_id: str, status: str) -> None:
         with self.conn:
             self.conn.execute("UPDATE jobs SET status=? WHERE id=?", (status, job_id))
+
+    def unscored_jobs(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM jobs WHERE status='new' AND id NOT IN (SELECT job_id FROM scores)").fetchall()
+
+    def save_score(self, row: dict) -> None:
+        cols = ", ".join(row)
+        marks = ", ".join("?" for _ in row)
+        with self.conn:
+            self.conn.execute(f"INSERT OR REPLACE INTO scores ({cols}) VALUES ({marks})", tuple(row.values()))
+            self.conn.execute("UPDATE jobs SET status='scored' WHERE id=?", (row["job_id"],))
 
     def close(self) -> None:
         self.conn.close()

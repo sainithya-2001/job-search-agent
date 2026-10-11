@@ -87,7 +87,7 @@ job-agent/
 - master_resume.yaml holds every bullet with an id. Tailoring may only select, reorder, and reword existing bullets and skills. No new tools, metrics, titles, dates, or employers.
 - verify.py: second LLM call + string checks. For each output bullet, cite the source bullet id. Reject and retry if any number, tool, or claim is not in the source.
 - Coursework: pick the 4–6 courses most relevant to the job from master_resume.yaml; never list all of them.
-- Headline: may change per job, built only from skills in master_resume.yaml, with no seniority words (Senior/Lead/Principal). Never change experience-section titles; print them exactly as stored.
+- Headline: may change per job. It is an optional role label plus skills from master_resume.yaml. The role label must come from config.yaml tailoring.headline_role_labels for the job's role family (AI Engineer, Applied AI, AI Solutions Engineer, Forward Deployed Engineer, AI Consultant, AI Evaluation, Data Analyst, Business Analyst, Analytics Engineer); no other labels. No seniority words anywhere in the headline (Senior/Lead/Principal/Staff). Never change experience-section titles; print them exactly as stored.
 - Years of experience: always "4+ years". Never write "5+".
 - Never use a master_resume.yaml field whose conflict is unresolved, or anything marked pending/outdated.
 - Before starting Phase 3, ask Nithya again: which unsupported skills to drop (Anthropic, Azure, CI/CD, AI-evaluation skills) and which cloud to keep (Azure vs AWS).
