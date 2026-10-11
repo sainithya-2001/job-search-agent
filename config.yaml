@@ -182,6 +182,74 @@ companies:
   - {name: Snowflake,               ats: ashby,      slug: snowflake,           hq: US, tier: big_tech, e_verify: unknown}
   - {name: Datadog,                 ats: greenhouse, slug: datadog,             hq: US, tier: big_tech, e_verify: unknown}
 
+  # --- added 2026-10-11 (expansion to ~120). Each board verified live: returns jobs AND belongs to the
+  # intended company (Greenhouse board name, or the company named in the postings). Tiers are a judgment call.
+  # Rejected while verifying: 'flock' (Flock insurance UK, not Flock Safety), 'bark' (BARK dog brand, not Bark
+  # Technologies), 'hightouch' (one stale posting); left out as not AI-first: Ternary, Greenlight, Mercury,
+  # Temporal, Supabase, Persona, Lattice, Linear, Benchling, Brex.
+  # --- startup ---
+  - {name: Vectara,                 ats: greenhouse, slug: vectara,            hq: US, tier: startup, e_verify: unknown}
+  - {name: Weaviate,                ats: ashby,      slug: weaviate,           hq: NL, tier: startup, e_verify: unknown}
+  - {name: Chroma,                  ats: ashby,      slug: trychroma,          hq: US, tier: startup, e_verify: unknown}
+  - {name: LanceDB,                 ats: ashby,      slug: lancedb,            hq: US, tier: startup, e_verify: unknown}
+  - {name: Letta,                   ats: ashby,      slug: letta,              hq: US, tier: startup, e_verify: unknown}
+  - {name: Mem0,                    ats: ashby,      slug: mem0,               hq: US, tier: startup, e_verify: unknown}
+  - {name: Browserbase,             ats: ashby,      slug: browserbase,        hq: US, tier: startup, e_verify: unknown}
+  - {name: E2B,                     ats: ashby,      slug: e2b,                hq: US, tier: startup, e_verify: unknown}
+  - {name: Cartesia,                ats: ashby,      slug: cartesia,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Hume AI,                 ats: ashby,      slug: hume-ai,            hq: US, tier: startup, e_verify: unknown}
+  - {name: Luma AI,                 ats: ashby,      slug: lumaai,             hq: US, tier: startup, e_verify: unknown}
+  - {name: Pika,                    ats: ashby,      slug: pika,               hq: US, tier: startup, e_verify: unknown}
+  - {name: Suno,                    ats: ashby,      slug: suno,               hq: US, tier: startup, e_verify: unknown}
+  - {name: Suki,                    ats: greenhouse, slug: suki,               hq: US, tier: startup, e_verify: unknown}
+  - {name: Samaya AI,               ats: greenhouse, slug: samayaai,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Basis,                   ats: ashby,      slug: basis-ai,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Maven AGI,               ats: ashby,      slug: maven-agi,          hq: US, tier: startup, e_verify: unknown}
+  - {name: Hyperbound,              ats: ashby,      slug: hyperbound,         hq: US, tier: startup, e_verify: unknown}
+  - {name: Artisan,                 ats: ashby,      slug: artisan,            hq: US, tier: startup, e_verify: unknown}
+  - {name: Omni,                    ats: ashby,      slug: omni,               hq: US, tier: startup, e_verify: unknown}
+  - {name: Surge AI,                ats: ashby,      slug: surge-ai,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Warp,                    ats: ashby,      slug: warp,               hq: US, tier: startup, e_verify: unknown}
+  - {name: Typeface,                ats: greenhouse, slug: typeface,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Imbue,                   ats: greenhouse, slug: imbue,              hq: US, tier: startup, e_verify: unknown}
+  - {name: Mercor,                  ats: ashby,      slug: mercor,             hq: US, tier: startup, e_verify: unknown}
+  - {name: Labelbox,                ats: greenhouse, slug: labelbox,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Airbyte,                 ats: ashby,      slug: airbyte,            hq: US, tier: startup, e_verify: unknown}
+  - {name: Harmonic,                ats: ashby,      slug: harmonic,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Sesame,                  ats: ashby,      slug: sesame,             hq: US, tier: startup, e_verify: unknown}
+  - {name: Distyl AI,               ats: ashby,      slug: distyl,             hq: US, tier: startup, e_verify: unknown}
+  - {name: Graphite,                ats: ashby,      slug: graphite,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Mintlify,                ats: ashby,      slug: mintlify,           hq: US, tier: startup, e_verify: unknown}
+  - {name: Pylon,                   ats: ashby,      slug: pylon,              hq: US, tier: startup, e_verify: unknown}
+  - {name: Clarium,                 ats: ashby,      slug: clarium,            hq: US, tier: startup, e_verify: unknown}
+  - {name: Hebbia,                  ats: ashby,      slug: hebbia-ai,          hq: US, tier: startup, e_verify: unknown}
+  # --- growth ---
+  - {name: Ramp,                    ats: ashby,      slug: ramp,               hq: US, tier: growth,  e_verify: unknown}
+  - {name: Pinecone,                ats: ashby,      slug: pinecone,           hq: US, tier: growth,  e_verify: unknown}
+  - {name: Clay,                    ats: ashby,      slug: claylabs,           hq: US, tier: growth,  e_verify: unknown}
+  - {name: Sigma Computing,         ats: greenhouse, slug: sigmacomputing,     hq: US, tier: growth,  e_verify: unknown}
+  - {name: Fivetran,                ats: greenhouse, slug: fivetran,           hq: US, tier: growth,  e_verify: unknown}
+  - {name: Astronomer,              ats: ashby,      slug: astronomer,         hq: US, tier: growth,  e_verify: unknown}
+  - {name: Monte Carlo,             ats: ashby,      slug: montecarlodata,     hq: US, tier: growth,  e_verify: unknown}
+  - {name: AlphaSense,              ats: greenhouse, slug: alphasense,         hq: US, tier: growth,  e_verify: unknown}
+  - {name: Observe.AI,              ats: greenhouse, slug: observeai,          hq: US, tier: growth,  e_verify: unknown}
+  - {name: Replit,                  ats: ashby,      slug: replit,             hq: US, tier: growth,  e_verify: unknown}
+  - {name: Vercel,                  ats: greenhouse, slug: vercel,             hq: US, tier: growth,  e_verify: unknown}
+  - {name: Anyscale,                ats: ashby,      slug: anyscale,           hq: US, tier: growth,  e_verify: unknown}
+  - {name: Lambda,                  ats: ashby,      slug: lambda,             hq: US, tier: growth,  e_verify: unknown}
+  - {name: Runway,                  ats: ashby,      slug: runway,             hq: US, tier: growth,  e_verify: unknown}
+  - {name: Commure,                 ats: ashby,      slug: commure,            hq: US, tier: growth,  e_verify: unknown}
+  - {name: Notion,                  ats: ashby,      slug: notion,             hq: US, tier: growth,  e_verify: unknown}
+  - {name: Airtable,                ats: greenhouse, slug: airtable,           hq: US, tier: growth,  e_verify: unknown}
+  - {name: Zapier,                  ats: ashby,      slug: zapier,             hq: US, tier: growth,  e_verify: unknown}
+  - {name: Gong,                    ats: greenhouse, slug: gongio,             hq: US, tier: growth,  e_verify: unknown}
+  - {name: Character.AI,            ats: ashby,      slug: character,          hq: US, tier: growth,  e_verify: unknown}
+  - {name: Abnormal Security,       ats: greenhouse, slug: abnormalsecurity,   hq: US, tier: growth,  e_verify: unknown}
+  - {name: Sardine,                 ats: ashby,      slug: sardine,            hq: US, tier: growth,  e_verify: unknown}
+  # --- Atlanta-based (growth) ---
+  - {name: Pindrop,                 ats: greenhouse, slug: pindropsecurity,    hq: US, tier: growth,  e_verify: unknown}
+  - {name: CallRail,                ats: greenhouse, slug: callrail,           hq: US, tier: growth,  e_verify: unknown}
+
 jsearch:
   # Aggregator source (RapidAPI). Runs only when enabled AND JSEARCH_API_KEY is set in .env.
   enabled: true
