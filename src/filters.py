@@ -48,6 +48,8 @@ class JobFilter:
             for fam in cfg["role_families"]
         ]
         self.title_exclude = [re.compile(p, flags) for p in cfg.get("title_exclude", [])]
+        self.unless_ai = [re.compile(p, flags) for p in cfg.get("title_exclude_unless_ai", [])]
+        self.ai_terms = [re.compile(p, flags) for p in cfg.get("ai_title_terms", [])]
         self.phrases = [re.compile(p, flags) for p in cfg.get("exclude_phrases", [])]
         self.bad_types = {t.lower() for t in cfg.get("exclude_employment_types", [])}
         self.us_only = cfg.get("us_only", True)
@@ -77,6 +79,8 @@ class JobFilter:
         for p in self.title_exclude:
             if p.search(job.title):
                 return FilterResult(False, "title: too senior / not IC full-time")
+        if any(p.search(job.title) for p in self.unless_ai) and not any(p.search(job.title) for p in self.ai_terms):
+            return FilterResult(False, "title: non-AI frontend/mobile/embedded/backend/infra")
         if job.employment_type and any(t in job.employment_type.lower() for t in self.bad_types):
             return FilterResult(False, f"employment type: {job.employment_type}")
         if self.us_only and not self.is_us_location(job.location, job.remote):

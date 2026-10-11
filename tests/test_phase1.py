@@ -47,6 +47,20 @@ def test_too_senior_or_not_ic(jf, title):
     assert not jf.check(make_job(title=title)).keep
 
 
+@pytest.mark.parametrize("title,keep", [
+    ("Backend Solutions Engineer", False),
+    ("Solutions Architect, Infrastructure", False),
+    ("Frontend Forward Deployed Engineer", False),
+    ("iOS Solutions Engineer", False),
+    ("Solutions Engineer, Embedded", False),
+    ("Backend Engineer, LLM Platform", True),
+    ("Software Engineer, AI Infrastructure", True),
+    ("Senior Applied AI Engineer", True),     # Senior titles stay in
+])
+def test_specialty_excluded_unless_ai(jf, title, keep):
+    assert jf.check(make_job(title=title)).keep is keep
+
+
 @pytest.mark.parametrize("desc", [
     "We are unable to sponsor visas for this role.",
     "Candidates must be authorized to work without sponsorship.",

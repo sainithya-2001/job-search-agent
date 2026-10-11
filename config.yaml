@@ -72,6 +72,12 @@ filters:
   # "senior" is intentionally NOT here — some "Senior" roles ask for 3–5 yrs; Phase 2 judges seniority.
   title_exclude: ['\b(staff|principal|distinguished|director|head of|vp|vice president|chief|manager|lead)\b', '\bintern(ship)?\b']
 
+  # Engineering specialties dropped UNLESS the title also matches `ai_title_terms`
+  # ("Backend Engineer" is dropped; "Backend Engineer, LLM Platform" is kept).
+  title_exclude_unless_ai: ['\bfront[- ]?end\b', '\bmobile\b', '\bios\b', '\bandroid\b', '\bembedded\b', '\bfirmware\b',
+                            '\bback[- ]?end\b', '\binfrastructure\b', '\binfra\b']
+  ai_title_terms: ['\bai\b', '\bml\b', '\bmachine learning\b', '\bllms?\b', '\bgen ?ai\b']
+
   # Description phrases that disqualify a posting (sponsorship, citizenship, clearance, staffing/contract).
   exclude_phrases:
     - '\b(unable|not able|cannot|can ?not|will not|won''t|do not|does not|don''t|are not able) (to )?(provide |offer |support )?(visa |immigration |h-?1b )?sponsor'
