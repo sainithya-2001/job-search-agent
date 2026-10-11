@@ -173,6 +173,10 @@ class Toolbox:
         out.result = {
             "scored": [{"job_id": r["job_id"], "company": r["company"], "title": r["title"],
                         "fit_score": r["fit_score"]} for r in sorted(res.scored, key=lambda r: -r["fit_score"])],
+            # Stated explicitly so the model's summary can't confuse "asked for" with "scored".
+            "requested": limit, "scored_count": len(res.scored),
+            "note": (f"scored {len(res.scored)} of {limit} requested: trimmed to fit the ${cap:.2f} scoring budget"
+                     if len(res.scored) < limit else f"scored {len(res.scored)} as requested"),
             "stopped_early": res.stopped_early,
             "tailor_candidates": self.tailor_candidates(),
         }
