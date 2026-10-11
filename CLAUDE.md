@@ -13,7 +13,7 @@ Find relevant jobs that sponsor visas, score them against her resume, tailor a r
 5. AI Evaluation / AI Quality roles
 6. Backup: Data Analyst, Business Analyst, Analytics Engineer
 
-Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, remote OK.
+Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, remote OK. Preference order (config.yaml preferences.location_priority): Atlanta GA > California > Texas > anywhere in US.
 
 ## Hard filters (exclude)
 - Staffing agencies, body shops, C2C/contract-only, "W2 through vendor" postings
@@ -87,8 +87,10 @@ job-agent/
 - master_resume.yaml holds every bullet with an id. Tailoring may only select, reorder, and reword existing bullets and skills. No new tools, metrics, titles, dates, or employers.
 - verify.py: second LLM call + string checks. For each output bullet, cite the source bullet id. Reject and retry if any number, tool, or claim is not in the source.
 - Coursework: pick the 4–6 courses most relevant to the job from master_resume.yaml; never list all of them.
+- Headline: may change per job, built only from skills in master_resume.yaml, with no seniority words (Senior/Lead/Principal). Never change experience-section titles; print them exactly as stored.
+- Years of experience: always "4+ years". Never write "5+".
 - Never use a master_resume.yaml field whose conflict is unresolved, or anything marked pending/outdated.
-- Before starting Phase 3, ask Nithya again: which unsupported skills to drop (Anthropic, Azure, CI/CD, AI-evaluation skills) and which cloud to keep (Azure vs AWS). Also ask for her elective courses.
+- Before starting Phase 3, ask Nithya again: which unsupported skills to drop (Anthropic, Azure, CI/CD, AI-evaluation skills) and which cloud to keep (Azure vs AWS).
 - Render to output/resumes/{company}_{role}.pdf.
 - Done when: python main.py tailor <job_id> produces a PDF and a verification report.
 

@@ -10,6 +10,15 @@ llm:
 scoring:
   escalate_threshold: 60    # fast-tier fit_score at or above this gets re-scored by the strong tier
 
+preferences:
+  # Job-location preference, highest first. Used to rank jobs, not to filter them (filters.us_only does that).
+  # Each tier matches if any pattern hits the job's location string (case-insensitive regex).
+  location_priority:
+    - {name: "Atlanta, GA", patterns: ['\batlanta\b', ',\s*GA\b', '\bgeorgia\b']}
+    - {name: California,    patterns: ['\bcalifornia\b', ',\s*CA\b', '\bsan francisco\b', '\bbay area\b', '\blos angeles\b', '\bsan diego\b', '\bsan jose\b', '\bpalo alto\b', '\bmountain view\b', '\bmenlo park\b', '\bsunnyvale\b', '\bsan mateo\b', '\bredwood city\b', '\boakland\b', '\bfoster city\b', '\bsanta clara\b', '\bUS-CA-']}
+    - {name: Texas,         patterns: ['\btexas\b', ',\s*TX\b', '\baustin\b', '\bdallas\b', '\bhouston\b', '\bsan antonio\b']}
+    - {name: Anywhere in US, patterns: ['.*']}     # fallback: any job that passed the US-only filter
+
 # Boards to pull from. `slug` is the company's identifier in the ATS URL:
 #   greenhouse: boards-api.greenhouse.io/v1/boards/{slug}/jobs
 #   lever:      api.lever.co/v0/postings/{slug}
