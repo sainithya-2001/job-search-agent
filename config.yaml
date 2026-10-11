@@ -1,7 +1,7 @@
 # Job agent configuration. Secrets live in .env, never here.
 
 llm:
-  provider: gemini          # gemini | anthropic  <- the one line to change to switch providers
+  provider: anthropic          # gemini | anthropic  <- the one line to change to switch providers
   models:                   # "fast" = first-pass scoring of every job; "strong" = re-score jobs >= escalate_threshold
     gemini:    {fast: gemini-3.5-flash-lite, strong: gemini-3.8-flash}     
     anthropic: {fast: claude-haiku-5-5,     strong: claude-opus-5-5}

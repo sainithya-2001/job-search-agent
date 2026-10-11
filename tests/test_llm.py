@@ -90,7 +90,8 @@ def test_config_switch_and_missing_key(monkeypatch, tmp_path):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cfg = load_config()
-    assert cfg["llm"]["provider"] == "gemini"
+    assert cfg["llm"]["provider"] in ("gemini", "anthropic")
+    cfg["llm"]["provider"] = "gemini"
     with pytest.raises(LLMError, match="GEMINI_API_KEY"):
         get_llm(cfg)
     cfg["llm"]["provider"] = "anthropic"

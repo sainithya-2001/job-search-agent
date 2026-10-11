@@ -24,8 +24,8 @@ Seniority: 0–5 years experience. Location: anywhere in the US, relocation OK, 
 - Python 3.11+, venv
 - httpx (HTTP), pydantic (models), SQLite via sqlite3 (storage)
 - LLM calls go through the provider interface in src/llm.py (structured JSON output, retry with backoff on rate limits/5xx)
-  - Default provider: Google Gemini via google-genai SDK, key GEMINI_API_KEY
-  - Alternate: anthropic SDK (Claude), key ANTHROPIC_API_KEY
+  - Active provider: anthropic SDK (Claude), key ANTHROPIC_API_KEY
+  - Alternate: Google Gemini via google-genai SDK, key GEMINI_API_KEY (switched away 2026-10-11: Google returned 403 "project denied access" on generation)
   - Switch by changing the one line `llm.provider` in config.yaml. No other code may import an LLM SDK directly.
 - pyyaml (master resume), jinja2 + weasyprint (resume PDF)
 - gspread + Google service account (Sheets logging)
@@ -79,7 +79,7 @@ job-agent/
 
 ### Phase 2 — Score
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
-- Use the "fast" tier (Gemini Flash-Lite) for the first pass and the "strong" tier (Gemini 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
+- Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Opus 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
 - Cross-check sponsorship with sponsorship.py (USCIS Employer Data Hub CSV; match on normalized employer name).
 - Done when: python main.py score ranks jobs and stores scores.
 
