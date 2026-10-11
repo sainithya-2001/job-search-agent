@@ -176,13 +176,44 @@ def cmd_score(args) -> None:
     store.close()
 
 
+def _family_and_title(store, job):
+    sc = store.conn.execute("SELECT role_family FROM scores WHERE job_id=?", (job["id"],)).fetchone()
+    return (sc["role_family"] if sc else None) or job["role_hint"], job["title"]
+
+
+def _publish(job, tr, master, verifier, base, report_text: str, pdf: bool) -> list[str]:
+    """Write JSON + HTML (+ one-page PDF) for a verified resume; append any one-page cuts to the report."""
+    import json as _json
+    from src.render import RenderError, fit_one_page, render_html
+    from src.verify import select_summary
+
+    summary = select_summary(master, verifier.family, verifier.title)["text"]
+    files = []
+    if pdf:
+        try:
+            html, pages, cuts = fit_one_page(tr, master, summary, base.with_suffix(".pdf"),
+                                             verifier.optional, set(verifier.required_bullets()))
+            files.append(f"{base.name}.pdf ({pages} page{'s' if pages != 1 else ''})")
+            if cuts:
+                report_text += "\n## One-page fitting (content cut, nothing added)\n\n" + "\n".join(f"- {c}" for c in cuts) + "\n"
+        except RenderError as e:
+            print(f"  ! {e}")
+            html = render_html(tr, master, summary)
+    else:
+        html = render_html(tr, master, summary)
+    base.with_suffix(".json").write_text(_json.dumps(tr.model_dump(), indent=2), encoding="utf-8")
+    base.with_suffix(".html").write_text(html, encoding="utf-8")
+    (base.parent / (base.name + "_verification.md")).write_text(report_text, encoding="utf-8")
+    return [base.name + ".html", *files]
+
+
 def cmd_tailor(args) -> None:
     import json as _json
     from src.llm import cost_usd, estimate_tokens, get_llm
-    from src.render import RenderError, render_html, slug, verification_report, write_pdf
+    from src.render import slug, verification_report
     from src.resume import citable_texts, load_master, project_tech, tailoring_source
     from src.tailor import SYSTEM, build_prompt, tailor_job
-    from src.verify import Verifier
+    from src.verify import Verifier, check_approved_summaries, select_summary
 
     cfg = load_config()
     tcfg, pricing = cfg["tailoring"], cfg["llm"].get("pricing", {})
@@ -192,24 +223,31 @@ def cmd_tailor(args) -> None:
     llm = get_llm(cfg)
     model = llm.models[tcfg.get("tier", "strong")]
 
-    pairs = []
+    findings = check_approved_summaries(master, texts, tech)
+    print("Approved summaries checked against master facts: " + ("all numbers and tools found" if not findings else ""))
+    for f in findings:
+        print(f"  note: {f}")
+
+    jobs = []
     for jid in args.job_ids:
         job = store.conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
         if not job:
             print(f"Unknown job id: {jid}")
             return
-        pairs.append((job, store.conn.execute("SELECT * FROM scores WHERE job_id=?", (jid,)).fetchone()))
+        jobs.append(job)
 
     # Estimate: one draft + one LLM fact-check per job, assuming ~1.5 attempts on average (worst case: max_attempts).
-    est_out = tcfg["est_output_tokens"]
-    per_job = []
-    for job, sc in pairs:
-        d_in = estimate_tokens(SYSTEM + build_prompt(job, sc, source, [], None)) + 800
+    est_out, per_job = tcfg["est_output_tokens"], []
+    for job in jobs:
+        fam, title = _family_and_title(store, job)
+        v = Verifier(master, texts, tech, cfg, fam, title)
+        sc = store.conn.execute("SELECT * FROM scores WHERE job_id=?", (job["id"],)).fetchone()
+        d_in = estimate_tokens(SYSTEM + build_prompt(job, sc, source, v, None)) + 800
         per_job.append((cost_usd(model, d_in, est_out["draft"], pricing) or 0)
                        + (cost_usd(model, 3000, est_out["verify"], pricing) or 0))
     expected, worst = sum(per_job) * 1.5, sum(per_job) * tcfg["max_attempts"]
     cap = tcfg["max_run_cost_usd"]
-    print(f"Tailoring {len(pairs)} job(s) with {model}")
+    print(f"Tailoring {len(jobs)} job(s) with {model}")
     print(f"Estimated cost: ~${expected:.3f} expected, ${worst:.3f} if every job needs {tcfg['max_attempts']} attempts"
           f"  |  run cap ${cap:.2f}")
     if expected > cap:
@@ -219,28 +257,22 @@ def cmd_tailor(args) -> None:
     out_dir = ROOT / "output" / "resumes"
     out_dir.mkdir(parents=True, exist_ok=True)
     spent = 0.0
-    for job, sc in pairs:
-        family = (sc["role_family"] if sc else None) or job["role_hint"]
-        verifier = Verifier(master, texts, tech, cfg, family)
+    for job in jobs:
+        fam, title = _family_and_title(store, job)
+        verifier = Verifier(master, texts, tech, cfg, fam, title)
+        sc = store.conn.execute("SELECT * FROM scores WHERE job_id=?", (job["id"],)).fetchone()
         res = tailor_job(job, sc, master, source, verifier, llm, cfg, budget_left=cap - spent)
         spent += res.cost
         base = out_dir / f"{slug(job['company'])}_{slug(job['title'])}"
-        (base.parent / (base.name + "_verification.md")).write_text(verification_report(job, res, res.cost), encoding="utf-8")
-        files = [base.name + "_verification.md"]
-        if res.resume is not None:
-            base.with_suffix(".json").write_text(_json.dumps(res.resume.model_dump(), indent=2), encoding="utf-8")
-            files.append(base.name + ".json")
+        report = verification_report(job, res, res.cost, select_summary(master, fam, title)["id"])
         if res.status.startswith("PASS"):
-            html = render_html(res.resume, master)
-            base.with_suffix(".html").write_text(html, encoding="utf-8")
-            files.append(base.name + ".html")
+            files = _publish(job, res.resume, master, verifier, base, report, args.pdf)
             store.set_status(job["id"], "tailored")
-            if args.pdf:
-                try:
-                    write_pdf(html, base.with_suffix(".pdf"))
-                    files.append(base.name + ".pdf")
-                except RenderError as e:
-                    print(f"  ! {e}")
+        else:
+            (out_dir / (base.name + "_verification.md")).write_text(report, encoding="utf-8")
+            if res.resume is not None:
+                base.with_suffix(".failed.json").write_text(_json.dumps(res.resume.model_dump(), indent=2), encoding="utf-8")
+            files = [base.name + "_verification.md"]
         print(f"  {res.status:22s} {job['company'][:16]:16s} {job['title'][:40]:40s} attempts={res.attempts} "
               f"removed={len(res.removed)} ${res.cost:.4f}  -> {', '.join(files)}")
     print(f"\nActual cost: ${spent:.4f}  (output in {out_dir.relative_to(ROOT)})")
@@ -250,11 +282,14 @@ def cmd_tailor(args) -> None:
 def cmd_render(args) -> None:
     """Re-render already-verified resumes from their saved JSON (no API calls)."""
     from src.models import TailoredResume
-    from src.render import RenderError, fallback_summary, render_html, slug, write_pdf
-    from src.resume import load_master
+    from src.render import slug
+    from src.resume import citable_texts, load_master, project_tech
+    from src.verify import Verifier
 
+    cfg = load_config()
     store = Store(ROOT / "data" / "jobs.db")
     master = load_master(ROOT / "data" / "master_resume.yaml")
+    texts, tech = citable_texts(master), project_tech(master)
     out_dir = ROOT / "output" / "resumes"
     for jid in args.job_ids:
         job = store.conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
@@ -267,20 +302,15 @@ def cmd_render(args) -> None:
             print(f"  ! {job['company']}: verification did not pass; not rendering")
             continue
         tr = TailoredResume.model_validate_json(base.with_suffix(".json").read_text(encoding="utf-8"))
-        html = render_html(tr, master)
-        base.with_suffix(".html").write_text(html, encoding="utf-8")
-        made = [base.name + ".html"]
-        if not tr.summary.text and "fallback summary" not in report:
-            (out_dir / (base.name + "_verification.md")).write_text(
-                report + f"\n**Summary:** the model's summary was removed; the resume uses the fixed fallback summary "
-                         f"built only from master facts: \"{fallback_summary(master)}\"\n", encoding="utf-8")
-        if args.pdf:
-            try:
-                write_pdf(html, base.with_suffix(".pdf"))
-                made.append(base.name + ".pdf")
-            except RenderError as e:
-                print(f"  ! {e}")
-        print(f"  {job['company'][:16]:16s} -> {', '.join(made)}")
+        fam, title = _family_and_title(store, job)
+        verifier = Verifier(master, texts, tech, cfg, fam, title)
+        recheck = verifier.check_structure(tr)          # rules may have changed since it was tailored
+        if not recheck.passed:
+            print(f"  ! {job['company']}: saved resume no longer passes current rules ({len(recheck.issues)} issue(s)); "
+                  f"re-run `tailor`")
+            continue
+        files = _publish(job, tr, master, verifier, base, report, args.pdf)
+        print(f"  {job['company'][:16]:16s} -> {', '.join(files)}")
     store.close()
 
 

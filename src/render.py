@@ -40,14 +40,7 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")[:60]
 
 
-def fallback_summary(master: dict) -> str:
-    """Used when the model's summary was removed by verification. Built only from master facts:
-    total years (as stated by Nithya), a title she has held ("Analyst"), and the master's degree."""
-    ms = next(ed for ed in master["education"] if ed.get("coursework"))
-    return f"Analyst with {_v(master['years_experience'])} of experience. {_v(ms['degree'])}, {ms['institution']}."
-
-
-def view_model(tr: TailoredResume, master: dict) -> dict:
+def view_model(tr: TailoredResume, master: dict, summary: str) -> dict:
     skills = {s["id"]: s["name"] for s in master["skills"]}
     exp = {e["id"]: e for e in master["experience"]}
     proj = {p["id"]: p for p in master["projects"]}
@@ -65,7 +58,7 @@ def view_model(tr: TailoredResume, master: dict) -> dict:
                           "coursework": [courses[i] for i in tr.coursework_ids if i in courses]})
     return {
         "name": _v(c["name"]), "email": _v(c["email"]), "phone": _v(c["phone"]), "location": _v(c["location"]),
-        "headline": " | ".join(head), "summary": tr.summary.text or fallback_summary(master),
+        "headline": " | ".join(head), "summary": summary,
         "experience": [{"title": _v(exp[s.id]["title"]), "company": exp[s.id]["company"],
                         "dates": _dates(exp[s.id].get("dates")), "bullets": [b.text for b in s.bullets]}
                        for s in tr.experience if s.id in exp and s.bullets],
@@ -77,25 +70,63 @@ def view_model(tr: TailoredResume, master: dict) -> dict:
     }
 
 
-def render_html(tr: TailoredResume, master: dict) -> str:
+def render_html(tr: TailoredResume, master: dict, summary: str) -> str:
     env = Environment(loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(["html", "j2"]))
-    return env.get_template("resume.html.j2").render(**view_model(tr, master))
+    return env.get_template("resume.html.j2").render(**view_model(tr, master, summary))
 
 
-def write_pdf(html: str, path: Path) -> None:
+_PAGE = re.compile(rb"/Type\s*/Page(?!s)")
+
+
+def write_pdf(html: str, path: Path) -> int:
+    """Print HTML to PDF with headless Chromium (Playwright). Returns the page count.
+    (WeasyPrint was dropped: on Windows it needs GTK/Pango system libraries.)"""
     try:
-        import weasyprint
-    except OSError as e:  # GTK/Pango system libraries missing (common on Windows)
-        raise RenderError("WeasyPrint is installed but its GTK/Pango system libraries are missing; "
-                          "PDF not written. HTML was saved instead.") from e
-    weasyprint.HTML(string=html, base_url=str(ROOT)).write_pdf(path)
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:
+        raise RenderError("Playwright is not installed: pip install playwright && playwright install chromium") from e
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.set_content(html, wait_until="load")
+        page.pdf(path=str(path), prefer_css_page_size=True, print_background=True)
+        browser.close()
+    return len(_PAGE.findall(Path(path).read_bytes()))
 
 
-def verification_report(job, result, cost: float) -> str:
+def fit_one_page(tr: TailoredResume, master: dict, summary: str, path: Path,
+                 optional: set[str], required: set[str]) -> tuple[str, int, list[str]]:
+    """Write a PDF; while it runs past one page, cut content (never add or reword):
+    1) drop optional experience entries (last first), then
+    2) drop the last bullet of the section with the most bullets, skipping required bullets and sole bullets.
+    Returns (final html, pages, list of cuts)."""
+    cuts = []
+    while True:
+        html = render_html(tr, master, summary)
+        pages = write_pdf(html, path)
+        if pages <= 1:
+            return html, pages, cuts
+        opt = [e for e in tr.experience if e.id in optional]
+        if opt:
+            tr.experience.remove(opt[-1])
+            cuts.append(f"dropped optional entry {opt[-1].id} to fit one page")
+            continue
+        candidates = [s for s in tr.experience + tr.projects if len(s.bullets) > 1
+                      and not set(s.bullets[-1].source_ids) & required]
+        if not candidates:
+            cuts.append(f"still {pages} pages; nothing left that can be cut automatically")
+            return html, pages, cuts
+        sec = max(candidates, key=lambda s: len(s.bullets))
+        b = sec.bullets.pop()
+        cuts.append(f"cut {sec.id} bullet to fit one page: {b.text}")
+
+
+def verification_report(job, result, cost: float, summary_id: str = "") -> str:
     v = result.verification
     lines = [f"# Verification report — {job['company']}: {job['title']}", "",
              f"- **Status:** {result.status}",
              f"- **Attempts:** {result.attempts}  |  **API calls:** {result.calls}  |  **Cost:** ${cost:.4f}",
+             f"- **Summary:** pre-approved `{summary_id}` from master_resume.yaml (not model-written)",
              f"- **Generated:** {date.today().isoformat()}", ""]
     for n, issues in enumerate(result.attempt_issues, 1):
         lines.append(f"**Attempt {n}:** " + ("passed all checks" if not issues else f"{len(issues)} problem(s)"))
@@ -109,9 +140,6 @@ def verification_report(job, result, cost: float) -> str:
                      f"{'ok' if c.terms_ok else 'FAIL'} | {judge} |")
     if result.removed:
         lines += ["", "## Removed (could not be sourced after all attempts)", ""] + [f"- {r}" for r in result.removed]
-    if result.resume is not None and not result.resume.summary.text:
-        lines += ["", "**Summary:** the model's summary was removed; the resume uses the fixed fallback summary "
-                  "built only from master facts (see render.fallback_summary)."]
     if v.issues:
         lines += ["", "## Remaining problems", ""] + [f"- {i}" for i in v.issues]
     lines += ["", "Titles, companies, dates, education, GPA, skill names, and course names are filled in from",

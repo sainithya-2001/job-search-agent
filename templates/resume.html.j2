@@ -5,24 +5,25 @@
 <title>{{ name }} — Resume</title>
 <style>
   /* One-column, ATS-friendly layout: real text, standard headings, no tables or images. */
-  @page { size: Letter; margin: 0.5in 0.55in; }
+  /* Sized for one Letter page: 10pt text at 1.18 line height fits ~55 lines inside 0.45in margins. */
+  @page { size: Letter; margin: 0.45in 0.5in; }
   :root { --ink: #1a1a1a; --muted: #555; --rule: #999; }
-  body { font-family: "Calibri", "Carlito", "Arial", sans-serif; font-size: 10.5pt; line-height: 1.28;
+  body { font-family: "Calibri", "Carlito", "Arial", sans-serif; font-size: 10pt; line-height: 1.18;
          color: var(--ink); background: #fff; margin: 0; }
-  .page { max-width: 7.4in; margin: 0 auto; padding: 0.25in 0; }
-  h1 { font-size: 18pt; margin: 0; text-align: center; letter-spacing: 0.3px; }
-  .contact { text-align: center; color: var(--muted); margin: 2px 0 0; }
-  .headline { text-align: center; font-weight: 600; margin: 4px 0 6px; }
-  h2 { font-size: 10.5pt; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid var(--rule);
-       margin: 9px 0 4px; padding-bottom: 1px; }
+  .page { max-width: 7.5in; margin: 0 auto; padding: 0; }
+  h1 { font-size: 16pt; margin: 0; text-align: center; letter-spacing: 0.3px; }
+  .contact { text-align: center; color: var(--muted); margin: 1px 0 0; }
+  .headline { text-align: center; font-weight: 600; margin: 2px 0 3px; }
+  h2 { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid var(--rule);
+       margin: 6px 0 2px; padding-bottom: 1px; }
   .row { display: flex; justify-content: space-between; gap: 12px; }
-  .entry { margin: 0 0 5px; break-inside: avoid; }
+  .entry { margin: 0 0 3px; break-inside: avoid; }
   .title { font-weight: 700; }
   .sub { font-style: italic; }
   .dates { white-space: nowrap; color: var(--muted); }
-  ul { margin: 2px 0 0 0; padding-left: 16px; }
-  li { margin: 0 0 1px; }
-  .skills p { margin: 0 0 2px; }
+  ul { margin: 1px 0 0 0; padding-left: 15px; }
+  li { margin: 0; }
+  .skills p { margin: 0 0 1px; }
   .summary { margin: 0; }
 </style>
 </head>

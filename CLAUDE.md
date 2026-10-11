@@ -32,7 +32,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
   - Active provider: anthropic SDK (Claude), key ANTHROPIC_API_KEY
   - Alternate: Google Gemini via google-genai SDK, key GEMINI_API_KEY (switched away 2026-10-11: Google returned 403 "project denied access" on generation)
   - Switch by changing the one line `llm.provider` in config.yaml. No other code may import an LLM SDK directly.
-- pyyaml (master resume), jinja2 + weasyprint (resume PDF)
+- pyyaml (master resume), jinja2 + playwright (resume PDF via headless Chromium; WeasyPrint dropped because it needs GTK system libraries on Windows)
 - gspread + Google service account (Sheets logging)
 - playwright (form pre-fill)
 - pytest (tests)
@@ -93,6 +93,8 @@ job-agent/
 ### Phase 3 — Tailor (with guardrail)
 - master_resume.yaml holds every bullet with an id. Tailoring may only select, reorder, and reword existing bullets and skills. No new tools, metrics, titles, dates, or employers.
 - verify.py: second LLM call + string checks. For each output bullet, cite the source bullet id. Reject and retry if any number, tool, or claim is not in the source.
+- Summary: never generated. Use the pre-approved summary in master_resume.yaml for the job's role family (sum_ai for AI roles, sum_analytics for Data Analyst / Analytics Engineer, sum_ba for Business Analyst).
+- One page max (enforced by rendering the PDF and counting pages; cut content only, never add). No two bullets about the same work (master_resume.yaml same_work_groups). For AI and analytics roles always include the required metric bullet (config.local.yaml tailoring.required_bullets). Apply the bullet preferences in tailoring.preferences. Optional experience (tailoring.optional_experience) may be dropped to fit one page. Include the Job-Search Agent project for all AI roles. Headline: at most 4 skills.
 - Coursework: pick the 4–6 courses most relevant to the job from master_resume.yaml; never list all of them.
 - Headline: may change per job. It is an optional role label plus skills from master_resume.yaml. The role label must come from config.yaml tailoring.headline_role_labels for the job's role family (AI Engineer, Applied AI, AI Solutions Engineer, Forward Deployed Engineer, AI Consultant, AI Evaluation, Data Analyst, Business Analyst, Analytics Engineer); no other labels. No seniority words anywhere in the headline (Senior/Lead/Principal/Staff). Never change experience-section titles; print them exactly as stored.
 - Years of experience: always "4+ years". Never write "5+".

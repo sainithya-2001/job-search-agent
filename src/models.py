@@ -69,8 +69,8 @@ class Headline(BaseModel):
 
 
 class TailoredResume(BaseModel):
+    # No summary: summaries are pre-approved in master_resume.yaml and chosen by code (verify.select_summary).
     headline: Headline
-    summary: CitedText
     experience: list[TailoredSection]
     projects: list[TailoredSection]
     skill_groups: list[SkillGroup]

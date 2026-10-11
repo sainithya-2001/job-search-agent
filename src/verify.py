@@ -1,12 +1,14 @@
 """Phase 3 guardrail: every claim in a tailored resume must trace to master_resume.yaml.
 
-Two layers:
-1. Deterministic checks (free, exact). Structure and ids; the headline rule; and, for every bullet and the summary,
-   that each NUMBER and each known TOOL/SKILL term in the text also appears in the facts it cites.
+Two layers for model-written bullets:
+1. Deterministic checks (free, exact). Structure and ids; the headline rule; the tailoring rules from config.yaml
+   (required bullets/projects, preferences, optional entries, one bullet per same-work group); and, for every
+   bullet, that each NUMBER and each known TOOL/SKILL term in the text also appears in the facts it cites.
 2. An LLM judge (strong tier) that reads each bullet next to its cited sources and flags anything not supported:
    added outcomes, scope, seniority, or tools the string checks can't see.
 
-Problems from both layers go back to the tailoring step for a retry.
+The summary is not model-written: it is one of the pre-approved summaries in master_resume.yaml, picked by code
+(`select_summary`) and checked once (`check_approved_summaries`).
 """
 import re
 from dataclasses import dataclass, field
@@ -17,13 +19,9 @@ from src.skills_gap import VOCAB
 
 # Numbers like 40+, 30%, 6.5%, 200K+, 3.2K, 1,500. Compared by their core value ("100k", "4.5").
 _NUM = re.compile(r"(?<![\w.])(\d+(?:[.,]\d+)*)(\s?[kK]\b)?")
-
-
-# Summary rules. "4+ years of experience" may stand alone or span roles; it must not be attached to specific work
-# ("4+ years building GenAI apps") because the years are total experience, mostly business analysis.
+# Summary wording checks (used when checking the approved summaries).
 _YEARS = re.compile(r"\b4\+\s*years(\s+of\s+(professional\s+|work\s+)?experience)?", re.I)
 _YEARS_OK_AFTER = re.compile(r"\s*($|[,.;)]|across\b|spanning\b|in business analysis\b|as an? (business )?analyst\b)", re.I)
-# Self-descriptions implying a title she hasn't held.
 _SELF_TITLE = re.compile(r"\b((ai|ml|software|applied ai|genai|llm|solutions?|forward[- ]deployed|analytics|data|"
                          r"machine learning)\s+(engineer|architect|scientist)s?|data scientists?|engineer)\b", re.I)
 
@@ -36,9 +34,17 @@ def numbers_in(text: str) -> set[str]:
     return out
 
 
+def _compile_terms(master: dict, tech: dict[str, list[str]]):
+    """Tool/skill terms: the skills-gap vocabulary plus every master skill name and project tech name."""
+    names = {s["name"] for s in master["skills"]} | {n for v in tech.values() for n in v}
+    terms = [(name, [re.compile(p, re.I) for p in pats]) for name, pats in VOCAB]
+    terms += [(n, [re.compile(r"(?<![\w])" + re.escape(n) + r"(?![\w])", re.I)]) for n in sorted(names)]
+    return terms
+
+
 @dataclass
 class Issue:
-    where: str          # e.g. "exp_emp_a bullet 2", "summary", "headline"
+    where: str          # e.g. "exp_emp_a bullet 2", "headline", "rules"
     problem: str
 
     def __str__(self) -> str:
@@ -67,22 +73,71 @@ class VerificationResult:
         return not self.issues
 
 
+def _applies(rule: dict, family: str, title: str) -> bool:
+    if family not in rule.get("families", []):
+        return False
+    return not (rule.get("unless_title") and re.search(rule["unless_title"], title or "", re.I))
+
+
+def select_summary(master: dict, family: str, title: str) -> dict:
+    """Pick the pre-approved summary for this job: role family first, then title conditions."""
+    for s in master.get("approved_summaries", []):
+        use = s["use_for"]
+        if family not in use.get("role_families", []):
+            continue
+        if use.get("title") and not re.search(use["title"], title or "", re.I):
+            continue
+        if use.get("title_not") and re.search(use["title_not"], title or "", re.I):
+            continue
+        return s
+    raise ValueError(f"no approved summary for role family '{family}' / title '{title}'")
+
+
+def check_approved_summaries(master: dict, texts: dict[str, str], tech: dict[str, list[str]]) -> list[str]:
+    """One-time check of the pre-approved summaries against ALL facts in the master resume.
+    Returns findings (empty = every number and tool term appears somewhere in the master facts)."""
+    corpus = " \n ".join(texts.values()) + " \n " + " \n ".join(n for v in tech.values() for n in v)
+    terms, findings = _compile_terms(master, tech), []
+    for s in master.get("approved_summaries", []):
+        t = s["text"]
+        nums = numbers_in(t) - numbers_in(corpus)
+        missing = [n for n, pats in terms if any(p.search(t) for p in pats) and not any(p.search(corpus) for p in pats)]
+        if nums:
+            findings.append(f"{s['id']}: numbers not in master facts {sorted(nums)}")
+        if missing:
+            findings.append(f"{s['id']}: terms not in master facts {sorted(set(missing))}")
+        for m in _YEARS.finditer(t):
+            if not _YEARS_OK_AFTER.match(t[m.end():]):
+                findings.append(f"{s['id']}: ties '4+ years' to specific work ('{t[m.start():m.end() + 45]}…')")
+        if _SELF_TITLE.search(t):
+            findings.append(f"{s['id']}: self-describes as '{_SELF_TITLE.search(t).group(0)}'")
+    return findings
+
+
 class Verifier:
-    def __init__(self, master: dict, texts: dict[str, str], tech: dict[str, list[str]], cfg: dict, role_family: str):
+    def __init__(self, master: dict, texts: dict[str, str], tech: dict[str, list[str]], cfg: dict,
+                 role_family: str, job_title: str = ""):
         self.master, self.texts, self.tech = master, texts, tech
-        t = cfg["tailoring"]
-        self.allowed_labels = t["headline_role_labels"].get(role_family, [])
-        self.forbidden = [w.lower() for w in t["headline_forbidden_words"]]
+        self.t = cfg["tailoring"]
+        self.family, self.title = role_family, job_title
+        self.allowed_labels = self.t["headline_role_labels"].get(role_family, [])
+        self.forbidden = [w.lower() for w in self.t["headline_forbidden_words"]]
+        self.max_head = self.t.get("max_headline_skills", 4)
+        self.optional = set(self.t.get("optional_experience", []))
         self.exp_ids = [e["id"] for e in master["experience"]]
         self.proj_ids = [p["id"] for p in master["projects"]]
         self.skill_ids = {s["id"] for s in master["skills"]}
+        self.groups = [set(g) for g in master.get("same_work_groups", [])]
         univ = next(ed for ed in master["education"] if ed.get("coursework"))
         cw = univ["coursework"]
         self.course_ids = {c["id"] for c in cw.get("core", []) + (cw.get("electives") or [])}
-        # Tool/skill terms: the skills-gap vocabulary plus every master skill name and project tech name.
-        names = {s["name"] for s in master["skills"]} | {n for v in tech.values() for n in v}
-        self.terms = [(name, [re.compile(p, re.I) for p in pats]) for name, pats in VOCAB]
-        self.terms += [(n, [re.compile(r"(?<![\w])" + re.escape(n) + r"(?![\w])", re.I)]) for n in sorted(names)]
+        self.terms = _compile_terms(master, tech)
+
+    def required_bullets(self) -> list[str]:
+        return [i for r in self.t.get("required_bullets", []) if _applies(r, self.family, self.title) for i in r["ids"]]
+
+    def required_projects(self) -> list[str]:
+        return [r["id"] for r in self.t.get("required_projects", []) if _applies(r, self.family, self.title)]
 
     # --- deterministic -------------------------------------------------------------------------------------------
     def _source_text(self, ids: list[str], section: str | None) -> str:
@@ -125,30 +180,18 @@ class Verifier:
         for sid in tr.headline.skill_ids:
             if sid not in self.skill_ids:
                 res.issues.append(Issue("headline", f"unknown skill id '{sid}'"))
-        if not 3 <= len(tr.headline.skill_ids) <= 5:
-            res.issues.append(Issue("headline", f"needs 3-5 skills, got {len(tr.headline.skill_ids)}"))
+        if not 3 <= len(tr.headline.skill_ids) <= self.max_head:
+            res.issues.append(Issue("headline", f"needs 3-{self.max_head} skills, got {len(tr.headline.skill_ids)}"))
         if label and any(re.search(rf"\b{w}\b", label.lower()) for w in self.forbidden):
             res.issues.append(Issue("headline", "contains a forbidden seniority word"))
-        # summary
-        self._check_text("summary", tr.summary.text, tr.summary.source_ids, None, res)
-        if len(tr.summary.text.split()) > 50:
-            res.issues.append(Issue("summary", "longer than 50 words"))
-        for m in _YEARS.finditer(tr.summary.text):
-            if not _YEARS_OK_AFTER.match(tr.summary.text[m.end():]):
-                res.issues.append(Issue("summary", "ties '4+ years' to specific work or skills; the years are total "
-                                        "experience (mostly business analysis). Write '4+ years of experience' standalone "
-                                        "or '4+ years of experience across business analysis, data, and AI roles'"))
-        title = _SELF_TITLE.search(tr.summary.text)
-        if title:
-            res.issues.append(Issue("summary", f"describes the candidate as '{title.group(0)}', a title she has not held; "
-                                    "use 'Analyst' or 'data and AI professional' (role labels go in the headline only)"))
-        # experience: every entry, in master order
+        # experience: every non-optional entry, in master order
         got = [s.id for s in tr.experience]
-        if got != self.exp_ids:
-            res.issues.append(Issue("experience", f"must list every entry in order {self.exp_ids}; got {got}"))
+        expected = [e for e in self.exp_ids if e in got or e not in self.optional]
+        if got != expected:
+            res.issues.append(Issue("experience", f"must list {[e for e in self.exp_ids if e not in self.optional]} "
+                                    f"(optional: {sorted(self.optional)}) in this order; got {got}"))
         for sec in tr.experience + tr.projects:
-            is_proj = sec.id in self.proj_ids
-            if not is_proj and sec.id not in self.exp_ids:
+            if sec.id not in self.proj_ids and sec.id not in self.exp_ids:
                 res.issues.append(Issue(sec.id, "unknown section id"))
                 continue
             if not sec.bullets:
@@ -160,6 +203,7 @@ class Verifier:
         total = sum(len(s.bullets) for s in tr.experience + tr.projects)
         if total > 16:
             res.issues.append(Issue("length", f"{total} bullets; keep to 16 or fewer for one page"))
+        self._check_rules(tr, res)
         # skills and coursework
         for g in tr.skill_groups:
             for sid in g.skill_ids:
@@ -172,6 +216,32 @@ class Verifier:
             res.issues.append(Issue("coursework", f"pick 4-6 courses, got {len(tr.coursework_ids)}"))
         return res
 
+    def _check_rules(self, tr: TailoredResume, res: VerificationResult) -> None:
+        """Tailoring rules from config.yaml + same-work groups from master_resume.yaml."""
+        bullets = [(f"{s.id} bullet {n}", set(b.source_ids))
+                   for s in tr.experience + tr.projects for n, b in enumerate(s.bullets, 1)]
+        cited = set().union(*(ids for _, ids in bullets)) if bullets else set()
+        # No two bullets about the same work.
+        for i, (w1, ids1) in enumerate(bullets):
+            for w2, ids2 in bullets[i + 1:]:
+                if ids1 & ids2:
+                    res.issues.append(Issue("rules", f"{w1} and {w2} cite the same source {sorted(ids1 & ids2)}"))
+                    continue
+                for g in self.groups:
+                    if ids1 & g and ids2 & g:
+                        res.issues.append(Issue("rules", f"{w1} and {w2} describe the same work (group {sorted(g)}); keep one"))
+                        break
+        for need in self.required_bullets():
+            if need not in cited:
+                res.issues.append(Issue("rules", f"must include a bullet citing {need} for this role"))
+        projects = {p.id for p in tr.projects}
+        for need in self.required_projects():
+            if need not in projects:
+                res.issues.append(Issue("rules", f"must include project {need} for this role"))
+        for p in self.t.get("preferences", []):
+            if p["over"] in cited and p["prefer"] not in cited:
+                res.issues.append(Issue("rules", f"uses {p['over']} without {p['prefer']} ({p.get('why', '')})"))
+
     # --- LLM judge ------------------------------------------------------------------------------------------------
     def check_with_llm(self, res: VerificationResult, llm: LLMProvider, tier: str) -> None:
         items = []
@@ -182,10 +252,7 @@ class Verifier:
                   "Rewording, shortening, and merging are fine. Mark supported=false if TEXT adds anything the sources "
                   "do not state: a tool, number, outcome, scale, customer, responsibility, seniority or leadership "
                   "claim, or an intensifier that changes the claim (e.g. 'production', 'enterprise', 'led', 'owned', "
-                  "'architected'). For the summary: the candidate's '4+ years' is total experience, mostly business "
-                  "analysis; mark it unsupported if it implies years of a specific skill or kind of work, or describes "
-                  "the candidate with a job title the sources don't show. Return one verdict per item, using the item "
-                  "number as index.\n\n"
+                  "'architected'). Return one verdict per item, using the item number as index.\n\n"
                   + "\n\n".join(items))
         resp = llm.generate_json(prompt, Verification, tier=tier,
                                  system="You are a strict fact-checker for resumes. Never invent; judge only support.")

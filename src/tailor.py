@@ -1,15 +1,16 @@
 """Phase 3: tailor the master resume to one job, with the verify.py guardrail in the loop.
 
 Loop: draft (strong tier) -> verify (string checks + LLM judge) -> if problems, redraft with the problem list,
-up to `tailoring.max_attempts`. If problems remain, unsupported bullets are REMOVED (never kept) and the removal
-is recorded in the report. Structural problems that removal can't fix (bad ids, wrong order) fail the job.
+up to `tailoring.max_attempts`. If problems remain, unsupported bullets and same-work duplicates are REMOVED (never
+kept) and the removal is recorded in the report. Problems removal can't fix (missing required bullet, bad ids,
+wrong order) fail the job. The summary is not drafted here: it's a pre-approved summary chosen by code.
 """
 import json
 from dataclasses import dataclass, field
 
 from src.llm import LLMProvider, cost_usd
 from src.models import TailoredResume
-from src.verify import Issue, VerificationResult, Verifier
+from src.verify import VerificationResult, Verifier
 
 SYSTEM = """You tailor a candidate's resume to one job. You may only SELECT, REORDER, and REWORD facts from the
 SOURCE list. Never add a tool, number, metric, outcome, employer, title, date, customer, scale, or responsibility
@@ -17,21 +18,21 @@ that the cited sources do not state. Rewording must keep meaning: no intensifier
 ("production", "enterprise-grade", "led", "owned", "architected", "spearheaded") unless the cited source says so.
 
 Output rules:
-- experience: include EVERY experience entry, in the SOURCE order. 1-4 bullets each (1-2 for short or older roles).
+- ONE PAGE: 12-15 bullets total across experience and projects (never more than 16).
+- experience: include every experience entry in SOURCE order, except entries listed as OPTIONAL, which you may drop
+  to save space. 1-4 bullets per entry (1-2 for short or older roles).
 - projects: the 1-3 most relevant projects, 1-3 bullets each.
 - Every bullet cites the ids of the SOURCE bullets it is built from, and only bullets from its OWN entry
-  (e.g. a bullet under exp_emp_b cites exp_emp_b_bNN ids only). You may merge bullets from the same entry.
+  (a bullet under exp_emp_b cites exp_emp_b_bNN ids only). You may merge bullets from the same entry.
+- No two bullets may describe the same work: never cite the same id twice, and use at most one bullet from each
+  SAME-WORK GROUP listed below.
 - Keep every number exactly as written in its source (40+, 30% → 6%, 200K+, ~3%). Do not round or combine.
-- Total bullets across experience and projects: 16 or fewer (one page).
-- summary: 1-2 sentences, at most 45 words, aimed at this job. Cite the ids it relies on (bullet ids, skill ids,
-  years_experience, edu_univ). "4+ years" is TOTAL experience, mostly business analysis: write
-  "4+ years of experience" on its own or "4+ years of experience across business analysis, data, and AI roles" —
-  never attach the years to a skill or kind of work ("4+ years building AI apps" is false). Do not call the
-  candidate an engineer, architect, or scientist; "Analyst" or "data and AI professional" are fine.
-- headline: role_label must be exactly one of the ALLOWED ROLE LABELS below, or null. Pick 3-5 skill ids most
-  relevant to the job. Never use Senior, Lead, Principal, or Staff.
+- headline: role_label must be exactly one of the ALLOWED ROLE LABELS, or null. Pick 3-4 skill ids most relevant to
+  the job. Never use Senior, Lead, Principal, or Staff.
 - skill_groups: 3-4 groups of 4-8 skill ids each, only skills relevant to this job. Labels are short category names.
 - coursework_ids: the 4-6 courses most relevant to this job.
+- Do not write a summary (it is chosen separately).
+- Follow the JOB-SPECIFIC RULES exactly.
 - Emphasize what the job asks for (see MATCHED and GAPS from the scorer), but never claim a gap you can't source.
 """
 
@@ -48,13 +49,27 @@ class TailorResult:
     status: str = "FAIL"
 
 
-def build_prompt(job, score_row, source: str, allowed_labels: list[str], feedback: list[str] | None) -> str:
+def job_rules(verifier: Verifier) -> list[str]:
+    rules = [f"OPTIONAL experience entries (may be dropped for space): {sorted(verifier.optional) or 'none'}"]
+    for i in verifier.required_bullets():
+        rules.append(f"MUST include a bullet citing {i}.")
+    for p in verifier.required_projects():
+        rules.append(f"MUST include project {p}.")
+    for p in verifier.t.get("preferences", []):
+        rules.append(f"Only use {p['over']} if {p['prefer']} is also used; prefer {p['prefer']}.")
+    rules.append("SAME-WORK GROUPS (at most one bullet citing each group): "
+                 + "; ".join("[" + ", ".join(sorted(g)) + "]" for g in verifier.groups))
+    return rules
+
+
+def build_prompt(job, score_row, source: str, verifier: Verifier, feedback: list[str] | None) -> str:
     matched = json.loads(score_row["matched_skills"] or "[]") if score_row else []
     gaps = json.loads(score_row["gaps"] or "[]") if score_row else []
     parts = [f"JOB: {job['title']} at {job['company']} ({job['location']})",
-             f"ALLOWED ROLE LABELS for this job: {allowed_labels or 'none — use null'}",
+             f"ALLOWED ROLE LABELS for this job: {verifier.allowed_labels or 'none — use null'}",
              f"MATCHED (from scorer): {', '.join(matched) or 'n/a'}",
              f"GAPS (from scorer; do NOT claim these): {', '.join(gaps) or 'n/a'}",
+             "", "JOB-SPECIFIC RULES", *[f"- {r}" for r in job_rules(verifier)],
              "", "POSTING", job["description"], "", "SOURCE (master resume facts, cite by id)", source]
     if feedback:
         parts += ["", "YOUR PREVIOUS DRAFT WAS REJECTED. Fix every problem below; if a claim can't be sourced, drop it:"]
@@ -62,22 +77,23 @@ def build_prompt(job, score_row, source: str, allowed_labels: list[str], feedbac
     return "\n".join(parts)
 
 
-def _remove_failing(tr: TailoredResume, res: VerificationResult) -> list[str]:
-    """Drop bullets that failed any check; return what was removed."""
+def _remove_failing(tr: TailoredResume, res: VerificationResult, verifier: Verifier) -> list[str]:
+    """Drop bullets that failed a check, then later bullets that repeat the same work. Returns what was removed."""
     failing = {i.where for i in res.issues}
-    removed = []
+    removed, seen = [], []
     for sec in tr.experience + tr.projects:
         keep = []
         for n, b in enumerate(sec.bullets, 1):
-            if f"{sec.id} bullet {n}" in failing:
-                removed.append(f"{sec.id}: {b.text}")
+            ids = set(b.source_ids)
+            dup = any(ids & s or any(ids & g and s & g for g in verifier.groups) for s in seen)
+            if f"{sec.id} bullet {n}" in failing or dup:
+                removed.append(f"{sec.id}: {b.text}" + ("  (same work as an earlier bullet)" if dup else ""))
             else:
                 keep.append(b)
+                seen.append(ids)
         sec.bullets = keep
-    if "summary" in failing:
-        removed.append(f"summary: {tr.summary.text}")
-        tr.summary.text, tr.summary.source_ids = "", []
     tr.projects = [p for p in tr.projects if p.bullets]
+    tr.experience = [e for e in tr.experience if e.bullets or e.id not in verifier.optional]
     return removed
 
 
@@ -97,7 +113,7 @@ def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, ll
             out.attempt_issues.append(["stopped: tailoring budget reached"])
             break
         out.attempts = attempt
-        draft = llm.generate_json(build_prompt(job, score_row, source, verifier.allowed_labels, feedback),
+        draft = llm.generate_json(build_prompt(job, score_row, source, verifier, feedback),
                                   TailoredResume, tier=tier, system=SYSTEM)
         spend(draft)
         tr = draft.data
@@ -112,33 +128,24 @@ def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, ll
             return out
         feedback = [str(i) for i in res.issues]
 
-    # Out of attempts: remove what still fails. Whatever survives must still pass the string checks AND the LLM
-    # judge (which may not have run on a draft that failed the string checks); anything the judge flags is removed too.
+    # Out of attempts: remove what still fails. Whatever survives must pass the string checks AND the LLM judge
+    # (which may not have run on a draft that failed the string checks); anything the judge flags is removed too.
     if out.resume is not None:
-        out.removed = _remove_failing(out.resume, out.verification)
-        recheck = _recheck(verifier, out.resume)
+        out.removed = _remove_failing(out.resume, out.verification, verifier)
+        recheck = verifier.check_structure(out.resume)
         if recheck.passed and out.cost < budget_left:
             verifier.check_with_llm(recheck, llm, tier)
             spend(recheck.llm_response)
             if not recheck.passed:
-                out.removed += _remove_failing(out.resume, recheck)
+                out.removed += _remove_failing(out.resume, recheck, verifier)
                 judged = recheck
-                recheck = _recheck(verifier, out.resume)
+                recheck = verifier.check_structure(out.resume)
                 _carry_verdicts(judged, recheck)
         out.verification = recheck
         # PASS only if every remaining item passed the string checks AND was judged supported by the LLM.
         judged_ok = all(c.llm_supported is True for c in recheck.checked)
         out.status = "PASS (bullets removed)" if recheck.passed and judged_ok else "FAIL"
     return out
-
-
-def _recheck(verifier: Verifier, tr: TailoredResume) -> VerificationResult:
-    res = verifier.check_structure(tr)
-    # A summary blanked on purpose isn't a new problem; drop its "cites no source ids" issue and its row.
-    if not tr.summary.text:
-        res.issues = [i for i in res.issues if i.where != "summary"]
-        res.checked = [c for c in res.checked if c.where != "summary"]
-    return res
 
 
 def _carry_verdicts(src: VerificationResult, dst: VerificationResult) -> None:
