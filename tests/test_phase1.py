@@ -170,7 +170,9 @@ def test_max_posting_age(cfg_filters):
 
 @pytest.mark.parametrize("title", ["Frontend AI Engineer", "Full-Stack Engineer, AI", "AI Platform Engineer",
                                    "AI Infrastructure Engineer", "AI Security Engineer", "SRE, LLM", "DevOps AI Engineer",
-                                   "Systems Engineer, Enterprise AI", "Staff Solutions Engineer", "Director, AI Strategy"])
+                                   "Systems Engineer, Enterprise AI", "Staff Solutions Engineer", "Director, AI Strategy",
+                                   "Network Operations Engineer, AI Networking", "Research Engineer, AI for Chip Design",
+                                   "AI Hardware Engineer"])
 def test_excluded_specialties_even_with_ai(jf, title):
     assert not jf.check(make_job(title=title)).keep
 

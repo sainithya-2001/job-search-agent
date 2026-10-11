@@ -220,14 +220,15 @@ filters:
   title_exclude: ['\b(staff|principal|distinguished|director|head of|vp|vice president|chief|manager|lead)\b', '\bintern(ship)?\b',
                   # Engineering specialties outside the target roles — dropped even when the title says AI.
                   '\bfront[- ]?end\b', '\bfull[- ]?stack\b', '\binfrastructure\b', '\binfra\b', '\bplatform\b',
-                  '\bsecurity\b', '\bappsec\b', '\bsystems? engineer', '\bsre\b', '\bsite reliability\b', '\bdevops\b']
+                  '\bsecurity\b', '\bappsec\b', '\bsystems? engineer', '\bsre\b', '\bsite reliability\b', '\bdevops\b',
+                  '\bnetwork operations\b', '\bchip design\b', '\bhardware\b']
 
   # Other specialties dropped UNLESS the title also matches `ai_title_terms`
   # ("Backend Engineer" is dropped; "Backend Engineer, LLM" is kept).
   title_exclude_unless_ai: ['\bmobile\b', '\bios\b', '\bandroid\b', '\bembedded\b', '\bfirmware\b', '\bback[- ]?end\b']
   ai_title_terms: ['\bai\b', '\bml\b', '\bmachine learning\b', '\bllms?\b', '\bgen ?ai\b']
 
-  # Description phrases that disqualify a posting (sponsorship, citizenship, clearance, staffing/contract).
+  # Description phrases that disqualify a posting (citizenship, clearance, export control, staffing/contract).
   exclude_phrases:
     # Sponsorship statements ("no sponsorship", "authorized to work without sponsorship") are NOT excluded
     # (2026-10-11). Citizenship, clearance, export-control, and permanent-resident requirements still are.
