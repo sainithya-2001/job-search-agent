@@ -308,7 +308,11 @@ filters:
     # Ranked last, but matched FIRST (match_first) so "Product Manager, Applied AI" lands here, not in ai_engineer.
     - name: program_product_manager
       match_first: true
-      patterns: ['\bprogram manager\b', '\bproduct manager\b', '\banalytics manager\b', '\b(ai|ml|data|solutions?) manager\b']
+      # Program managers only when technical / AI / data / product ("Technical Program Manager", "AI Program
+      # Manager", "Program Manager, Data & Analytics"); generic ones ("Privacy Program Manager") don't match.
+      patterns: ['\b(technical|engineering|ai|ml|data|analytics|product)( and \w+)? program manager\b',
+                 '\bprogram manager\b.*\b(technical|engineering|ai|ml|llms?|gen ?ai|data|analytics|product)\b',
+                 '\bproduct manager\b', '\banalytics manager\b', '\b(ai|ml|data|solutions?) manager\b']
 
   # Titles dropped regardless of family: too senior for 0–5 yrs, or not a full-time IC role.
   # "Senior" is intentionally NOT here — kept per Nithya; Phase 2 judges seniority from the posting.

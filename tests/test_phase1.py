@@ -270,6 +270,10 @@ def test_ashby_parse_skips_unlisted():
     ("Solutions Manager", "program_product_manager"),
     ("Engineering Program Manager", "program_product_manager"),
     ("Product Manager, Engineering Productivity", "program_product_manager"),
+    ("AI Program Manager", "program_product_manager"),
+    ("Data Program Manager", "program_product_manager"),
+    ("Program Manager, Data & Analytics", "program_product_manager"),
+    ("Product Program Manager", "program_product_manager"),
 ])
 def test_manager_roles_kept_in_new_family(jf, title, family):
     r = jf.check(make_job(title=title))
@@ -293,3 +297,9 @@ def test_management_and_non_target_manager_titles_excluded(jf, title):
 ])
 def test_remote_restricted_elsewhere(jf, loc, desc, restricted):
     assert jf.remote_restricted_elsewhere(loc, True, desc) is restricted
+
+
+@pytest.mark.parametrize("title", ["Privacy Program Manager", "Recruiting Operations Program Manager",
+                                   "Senior Program Manager", "Program Manager, Events", "Marketing Program Manager"])
+def test_generic_program_managers_excluded(jf, title):
+    assert not jf.check(make_job(title=title)).keep
