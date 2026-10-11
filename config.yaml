@@ -1,0 +1,95 @@
+# Job agent configuration. Secrets live in .env, never here.
+
+# Boards to pull from. `slug` is the company's identifier in the ATS URL:
+#   greenhouse: boards-api.greenhouse.io/v1/boards/{slug}/jobs
+#   lever:      api.lever.co/v0/postings/{slug}
+#   ashby:      api.ashbyhq.com/posting-api/job-board/{slug}
+# All slugs below were verified live on 2026-10-11.
+companies:
+  # --- Greenhouse ---
+  - {name: Anthropic,        ats: greenhouse, slug: anthropic}
+  - {name: Scale AI,         ats: greenhouse, slug: scaleai}
+  - {name: Databricks,       ats: greenhouse, slug: databricks}
+  - {name: Glean,            ats: greenhouse, slug: gleanwork}
+  - {name: Together AI,      ats: greenhouse, slug: togetherai}
+  - {name: Snorkel AI,       ats: greenhouse, slug: snorkelai}
+  - {name: C3 AI,            ats: greenhouse, slug: c3iot}
+  - {name: Dataiku,          ats: greenhouse, slug: dataiku}
+  - {name: Cresta,           ats: greenhouse, slug: cresta}
+  - {name: CoreWeave,        ats: greenhouse, slug: coreweave}
+  - {name: SambaNova,        ats: greenhouse, slug: sambanovasystems}
+  - {name: Datadog,          ats: greenhouse, slug: datadog}
+  - {name: MongoDB,          ats: greenhouse, slug: mongodb}
+  - {name: Elastic,          ats: greenhouse, slug: elastic}
+  - {name: Stripe,           ats: greenhouse, slug: stripe}
+  - {name: Intercom,         ats: greenhouse, slug: intercom}
+  # --- Ashby ---
+  - {name: OpenAI,           ats: ashby, slug: openai}
+  - {name: Cohere,           ats: ashby, slug: cohere}
+  - {name: Perplexity,       ats: ashby, slug: perplexity}
+  - {name: Harvey,           ats: ashby, slug: harvey}
+  - {name: Sierra,           ats: ashby, slug: sierra}
+  - {name: Decagon,          ats: ashby, slug: decagon}
+  - {name: Writer,           ats: ashby, slug: writer}
+  - {name: ElevenLabs,       ats: ashby, slug: elevenlabs}
+  - {name: Deepgram,         ats: ashby, slug: deepgram}
+  - {name: LangChain,        ats: ashby, slug: langchain}
+  - {name: Modal,            ats: ashby, slug: modal}
+  - {name: Notion,           ats: ashby, slug: notion}
+  - {name: Ramp,             ats: ashby, slug: ramp}
+  - {name: Snowflake,        ats: ashby, slug: snowflake}
+  - {name: Hex,              ats: ashby, slug: hex}
+  - {name: Abridge,          ats: ashby, slug: abridge}
+  - {name: Cognition,        ats: ashby, slug: cognition}
+  - {name: Replit,           ats: ashby, slug: replit}
+  - {name: Cursor,           ats: ashby, slug: cursor}
+  - {name: Baseten,          ats: ashby, slug: baseten}
+  # --- Lever ---
+  - {name: Palantir,         ats: lever, slug: palantir}
+  - {name: Level AI,         ats: lever, slug: levelai}
+  - {name: Hive,             ats: lever, slug: hive}
+  - {name: Zoox,             ats: lever, slug: zoox}
+
+filters:
+  # Role families in priority order. A title is kept if it matches any pattern;
+  # the first family that matches is recorded as the job's role hint.
+  # Patterns are case-insensitive regular expressions.
+  role_families:
+    - name: ai_engineer
+      patterns: ['\bai engineer', '\bapplied ai\b', '\bgen ?ai\b', '\bgenerative ai\b', '\bllms?\b', '\bai/ml engineer', '\bengineer\b.*\b(ai|llm)\b']
+    - name: ai_solutions
+      patterns: ['\bsolutions? (engineer|architect)', '\bai solutions\b', '\bai deployment\b']
+    - name: forward_deployed
+      patterns: ['\bforward[- ]deployed\b', '\bdeployment strategist\b']
+    - name: ai_consultant
+      patterns: ['\bai (consultant|strategist|strategy|advisor|transformation)\b']
+    - name: ai_eval
+      patterns: ['\bevals?\b', '\bevaluations?\b', '\bai quality\b', '\bmodel quality\b']
+    - name: analyst_backup
+      patterns: ['\bdata analyst\b', '\bbusiness analyst\b', '\banalytics engineer\b']
+
+  # Titles dropped regardless of family: too senior for 0–5 yrs, or not a full-time IC role.
+  # "senior" is intentionally NOT here — some "Senior" roles ask for 3–5 yrs; Phase 2 judges seniority.
+  title_exclude: ['\b(staff|principal|distinguished|director|head of|vp|vice president|chief|manager|lead)\b', '\bintern(ship)?\b']
+
+  # Description phrases that disqualify a posting (sponsorship, citizenship, clearance, staffing/contract).
+  exclude_phrases:
+    - '\b(unable|not able|cannot|can ?not|will not|won''t|do not|does not|don''t|are not able) (to )?(provide |offer |support )?(visa |immigration |h-?1b )?sponsor'
+    - '\bnot (require|need) (visa |immigration )?sponsorship'
+    - '\bwithout (the need for )?(visa |immigration |current or future )?sponsorship'
+    - '\bno (visa )?sponsorship\b'
+    - '\bsponsorship (is )?not (available|offered|provided)'
+    - '\bmust be a u\.?s\.? citizen'
+    - '\bu\.?s\.? citizenship (is )?required'
+    - '\b(security|government|secret|ts/sci|top secret) clearance\b'
+    - '\bactive clearance\b'
+    - '\bc2c\b'
+    - '\bcorp[- ]to[- ]corp\b'
+    - '\bw-?2 through (a |our )?vendor'
+    - '\bcontract[- ]only\b'
+
+  # Employment types (from the ATS) that are dropped.
+  exclude_employment_types: [contract, contractor, temporary, intern, internship]
+
+  # Keep only postings with at least one US (or plain "Remote") location.
+  us_only: true

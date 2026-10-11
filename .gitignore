@@ -1,0 +1,14 @@
+# secrets
+.env
+
+# environment / caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# generated data — never commit
+data/jobs.db
+data/*.db-journal
+output/
+logs/
