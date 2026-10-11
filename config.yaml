@@ -323,7 +323,7 @@ filters:
                   # Engineering specialties outside the target roles — dropped even when the title says AI.
                   '\bfront[- ]?end\b', '\bfull[- ]?stack\b', '\binfrastructure\b', '\binfra\b', '\bplatform\b',
                   '\bsecurity\b', '\bappsec\b', '\bsystems? engineer', '\bsre\b', '\bsite reliability\b', '\bdevops\b',
-                  '\bnetwork operations\b', '\bchip design\b', '\bhardware\b',
+                  '\bnetwork operations\b', '\bchip design\b', '\bhardware\b', '\belectrical\b',
                   '\bmobile\b', '\bios\b', '\bandroid\b']
 
   # Other specialties dropped UNLESS the title also matches `ai_title_terms`
