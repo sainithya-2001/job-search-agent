@@ -228,13 +228,12 @@ filters:
 
   # Description phrases that disqualify a posting (sponsorship, citizenship, clearance, staffing/contract).
   exclude_phrases:
-    - '\b(unable|not able|cannot|can ?not|will not|won''t|do not|does not|don''t|are not able) (to )?(provide |offer |support )?(visa |immigration |h-?1b )?sponsor'
-    - '\bnot (require|need) (visa |immigration )?sponsorship'
-    - '\bwithout (the need for |requiring )?(any )?(visa |immigration |current or future |future )?(employer |company )?(visa )?sponsorship'
-    - '\bno (visa )?sponsorship\b'
-    - '\bsponsorship (is )?not (available|offered|provided)'
+    # Sponsorship statements ("no sponsorship", "authorized to work without sponsorship") are NOT excluded
+    # (2026-10-11). Citizenship, clearance, export-control, and permanent-resident requirements still are.
     - '\bmust be a u\.?s\.? citizen'
     - '\bu\.?s\.? citizenship (is )?required'
+    - '\bu\.?s\.? citizens? only\b'
+    - '\bonly (open to |available to )?u\.?s\.? citizens\b'
     - '\b(security|government|secret|ts/sci|top secret) clearance\b'
     - '\bactive clearance\b'
     - '\bc2c\b'

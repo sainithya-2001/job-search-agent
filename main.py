@@ -27,7 +27,7 @@ def _reason_bucket(reason: str) -> str:
     text = reason.lower()
     if any(w in text for w in _EXPORT_WORDS):
         return "phrase: export control / US person / residency"
-    return "phrase: sponsorship / citizenship / clearance / contract"
+    return "phrase: citizenship / clearance / contract"
 
 
 def cmd_search(args) -> None:

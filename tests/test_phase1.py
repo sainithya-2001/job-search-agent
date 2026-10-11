@@ -68,12 +68,12 @@ def test_specialty_excluded_unless_ai(jf, title, keep):
 
 
 @pytest.mark.parametrize("desc", [
-    "We are unable to sponsor visas for this role.",
-    "Candidates must be authorized to work without sponsorship.",
-    "Must be authorized to work in the U.S. without the need for current or future employer sponsorship.",
-    "You must be authorized to work in the United States without the need for employer sponsorship",
     "Must be a U.S. citizen.",
+    "This role is open to U.S. citizens only.",
+    "Only open to US citizens.",
+    "U.S. citizenship is required.",
     "Active TS/SCI clearance required.",
+    "Must be a permanent resident or citizen; this is required.",
     "This is a C2C engagement.",
     "W2 through vendor only.",
 ])
@@ -82,8 +82,31 @@ def test_exclusion_phrases(jf, desc):
     assert not r.keep and r.reason.startswith("phrase")
 
 
-def test_sponsorship_positive_is_kept(jf):
-    assert jf.check(make_job(description="We sponsor visas and support H-1B transfers.")).keep
+@pytest.mark.parametrize("desc", [
+    # Since 2026-10-11 sponsorship statements no longer exclude a job.
+    "We are unable to sponsor visas for this role.",
+    "Candidates must be authorized to work without sponsorship.",
+    "Must be authorized to work in the U.S. without the need for current or future employer sponsorship.",
+    "No visa sponsorship is available for this position.",
+    "We sponsor visas and support H-1B transfers.",
+])
+def test_sponsorship_statements_are_kept(jf, desc):
+    assert jf.check(make_job(description=desc)).keep
+
+
+def test_recheck_restores_jobs_that_now_pass(tmp_path, cfg_filters):
+    from src.pipeline import recheck_existing
+    from src.store import Store
+
+    store = Store(tmp_path / "jobs.db")
+    ok = make_job(description="We are unable to sponsor visas for this role.")
+    bad = make_job(title="AI Engineer II", description="Must be a U.S. citizen.").model_copy(update={"id": "gh:x:2"})
+    store.save([ok, bad])
+    store.set_status(ok.id, "excluded"); store.set_status(bad.id, "excluded")
+    cfg = {"filters": cfg_filters, "companies": [{"name": ok.company, "hq": "US"}]}
+    assert recheck_existing(cfg, store)["restored (now passes filters)"] == 1
+    assert [r["id"] for r in store.jobs_by_status("new")] == [ok.id]
+    store.close()
 
 
 def test_contract_employment_type(jf):

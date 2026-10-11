@@ -3,7 +3,7 @@
 You are helping Nithya build a job-search agent in Python. Build it phase by phase, in order. After each phase: run it, show the output, and explain the key design decisions in 3–5 bullets so she understands the architecture. Do not move to the next phase until the current one runs end to end.
 
 ## Goal
-Find relevant jobs that sponsor visas, score them against her resume, tailor a resume per job (never inventing facts), log everything to Google Sheets, and pre-fill applications for her approval.
+Find relevant jobs she is eligible for, score them against her resume, tailor a resume per job (never inventing facts), log everything to Google Sheets, and pre-fill applications for her approval.
 
 ## Target roles (in priority order)
 1. AI Engineer / Applied AI Engineer / GenAI Engineer (LLM applications)
@@ -20,7 +20,8 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
 
 ## Hard filters (exclude)
 - Staffing agencies, body shops, C2C/contract-only, "W2 through vendor" postings
-- Postings that say "no sponsorship", "must be a US citizen", "security clearance required"
+- Postings that require US citizenship ("must be a US citizen", "US citizens only") or a security clearance
+- Sponsorship statements ("no sponsorship", "must be authorized to work without sponsorship") are NOT excluded (2026-10-11)
 - Export-control / US-person requirements: "export controlled", ITAR, EAR, "U.S. person", "permanent resident", "green card" (except positive mentions like "green card sponsorship")
 - Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps (even with AI in the title); Staff, Principal, Lead, Director. Senior is kept.
 - Duplicates (same company + normalized title)
@@ -80,7 +81,7 @@ job-agent/
 ## Phases
 
 ### Phase 1 — Ingest
-- Pull jobs from Greenhouse/Lever/Ashby for the company list in config.yaml (start with ~40 AI-native and enterprise-AI companies that have sponsored H-1Bs).
+- Pull jobs from Greenhouse/Lever/Ashby for the company list in config.yaml (AI-native and enterprise-AI companies).
 - Normalize to the Job model: id, company, title, location, remote, url, description, source, posted_at.
 - Apply filters.py (title keywords, exclusion phrases) before saving. Save to SQLite with dedupe.
 - Done when: python main.py search prints a count and the top 10 new jobs.
@@ -88,7 +89,7 @@ job-agent/
 ### Phase 2 — Score
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
 - Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Sonnet 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
-- Cross-check sponsorship with sponsorship.py (USCIS Employer Data Hub CSV; match on normalized employer name).
+- sponsorship_signal and the USCIS cross-check (sponsorship.py) are informational only: they never affect fit_score, ranking, or filtering.
 - Ranking of results: fit_score, then company tier (startup > growth > big_tech), then location priority.
 - Cost control: print an estimate before each run and the actual cost after; never exceed scoring.max_run_cost_usd.
 - Done when: python main.py score ranks jobs and stores scores.

@@ -28,7 +28,10 @@ fit_score rubric (0-100):
 - 70-84: most core requirements shown; one or two notable gaps.
 - 55-69: real overlap, but several core gaps or a stretch on seniority.
 - 35-54: weak overlap; mostly a different skill set.
-- 0-34: wrong kind of role, or clearly ineligible.
+- 0-34: wrong kind of role, or clearly ineligible (requires US citizenship, a security clearance, or US-person /
+  permanent-resident status).
+Statements about
+sponsorship ("we do not sponsor", "must be authorized to work without sponsorship") do not affect fit_score.
 If seniority_ok is false, fit_score must be at most 50.
 
 seniority_ok: the candidate has 4+ years of experience (see profile). True if the posting's required minimum is
@@ -44,10 +47,9 @@ role_family — pick exactly one:
 - analyst_backup: Data Analyst, Business Analyst, Analytics Engineer
 - other: none of the above (e.g. general software engineering, research, sales)
 
-sponsorship_signal (from the posting text only):
+sponsorship_signal (informational only; it is not used for scoring or ranking):
 - "yes" only if the posting explicitly says it sponsors visas / H-1B or offers immigration support.
-- "no" if it says it will not sponsor, requires US citizenship, a security clearance, or work authorization
-  without sponsorship.
+- "no" if it says it will not sponsor, or requires work authorization without sponsorship.
 - otherwise "unclear".
 quote: copy the exact sentence from the posting that supports "yes" or "no"; null when "unclear".
 

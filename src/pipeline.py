@@ -85,15 +85,26 @@ def run_search(cfg: dict, store: Store, *, save: bool = True) -> SearchResult:
         return res
     res.new = store.save(kept, res.hints)
 
+    res.relabel = recheck_existing(cfg, store, jf)
+    return res
+
+
+def recheck_existing(cfg: dict, store: Store, jf: JobFilter | None = None) -> Counter:
     # Re-check unscored jobs already in the DB against the CURRENT filters and company list, so rule changes
-    # apply retroactively. Rows are re-labelled, never deleted; scored jobs are left alone.
+    # apply retroactively in both directions: newly failing jobs are excluded, and previously excluded jobs that
+    # now pass come back as new. Rows are re-labelled, never deleted; scored jobs are left alone.
+    jf = jf or job_filter(cfg)
     configured = {c["name"] for c in cfg["companies"]}
+    relabel = Counter()
     for row in store.jobs_by_status("new"):
         if row["source"] != "jsearch" and row["company"] not in configured:
-            store.set_status(row["id"], "dropped_company"); res.relabel["dropped_company"] += 1
+            store.set_status(row["id"], "dropped_company"); relabel["dropped_company"] += 1
         elif not jf.check(job_from_row(row)).keep:
-            store.set_status(row["id"], "excluded"); res.relabel["excluded"] += 1
-    return res
+            store.set_status(row["id"], "excluded"); relabel["excluded"] += 1
+    for row in store.jobs_by_status("excluded"):
+        if (row["source"] == "jsearch" or row["company"] in configured) and jf.check(job_from_row(row)).keep:
+            store.set_status(row["id"], "new"); relabel["restored (now passes filters)"] += 1
+    return relabel
 
 
 # ---- tailor -----------------------------------------------------------------------------------------------------
