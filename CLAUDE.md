@@ -79,7 +79,7 @@ job-agent/
 
 ### Phase 2 — Score
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
-- Use the "fast" tier (Gemini Flash-Lite) for the first pass and the "strong" tier (Gemini Pro) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
+- Use the "fast" tier (Gemini Flash-Lite) for the first pass and the "strong" tier (Gemini 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
 - Cross-check sponsorship with sponsorship.py (USCIS Employer Data Hub CSV; match on normalized employer name).
 - Done when: python main.py score ranks jobs and stores scores.
 
