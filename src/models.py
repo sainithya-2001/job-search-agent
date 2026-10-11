@@ -42,3 +42,46 @@ class ScoredJob(BaseModel):
     is_staffing_firm: bool
     seniority_ok: bool = Field(description="True if the role's required experience is 5 years or less")
     one_line_reason: str = Field(description="One sentence explaining the score")
+
+
+# --- Phase 3: tailoring ---------------------------------------------------------------------------
+# The model returns ids wherever it can (skills, coursework, sections) so code — not the model — writes names,
+# titles, dates, and employers. Free text is limited to bullets and the summary, and each cites its sources.
+
+class CitedText(BaseModel):
+    text: str
+    source_ids: list[str] = Field(description="ids of the master-resume facts this text is built from")
+
+
+class TailoredSection(BaseModel):
+    id: str = Field(description="experience or project id, e.g. exp_emp_b or proj_text2sql")
+    bullets: list[CitedText]
+
+
+class SkillGroup(BaseModel):
+    label: str = Field(description="short group label, e.g. 'AI & LLMs'")
+    skill_ids: list[str]
+
+
+class Headline(BaseModel):
+    role_label: str | None = Field(description="one label from the allowed list for this job, or null")
+    skill_ids: list[str] = Field(description="3-5 skill ids")
+
+
+class TailoredResume(BaseModel):
+    headline: Headline
+    summary: CitedText
+    experience: list[TailoredSection]
+    projects: list[TailoredSection]
+    skill_groups: list[SkillGroup]
+    coursework_ids: list[str]
+
+
+class BulletVerdict(BaseModel):
+    index: int
+    supported: bool
+    problem: str | None = Field(default=None, description="what is not supported by the sources; null if supported")
+
+
+class Verification(BaseModel):
+    verdicts: list[BulletVerdict]

@@ -17,8 +17,13 @@ def make_job(**kw) -> Job:
 
 
 @pytest.fixture(scope="module")
-def jf():
-    return JobFilter(load_config()["filters"])
+def cfg_filters():
+    return load_config()["filters"]
+
+
+@pytest.fixture(scope="module")
+def jf(cfg_filters):
+    return JobFilter(cfg_filters)
 
 
 # --- filters ---------------------------------------------------------------
@@ -110,6 +115,34 @@ def test_contract_employment_type(jf):
 ])
 def test_location_rules(jf, loc, remote, desc, ok):
     assert (jf.location_reason(make_job(location=loc, remote=remote, description=desc)) is None) is ok
+
+
+@pytest.mark.parametrize("title,family", [
+    ("AI Evaluation Engineer", "ai_eval"), ("Model Evaluation Specialist", "ai_eval"),
+    ("LLM Evaluation Analyst", "ai_eval"), ("Evals Engineer", "ai_eval"), ("AI Quality Analyst", "ai_eval"),
+    ("Senior Software Engineer, Evaluation Engine", None),     # plain "evaluation" no longer counts
+    ("Senior Research Scientist, Model Evaluation", None),     # research scientist excluded from ai_eval
+    ("Backend Engineer, Evals", None),                         # backend excluded from ai_eval
+])
+def test_tightened_ai_eval(jf, title, family):
+    assert jf.role_family(title) == family
+
+
+def test_bare_remote_kept_for_us_hq_company(cfg_filters):
+    us = JobFilter(cfg_filters, us_hq_companies={"Acme"})
+    assert us.location_reason(make_job(company="Acme", location="Remote", remote=True)) is None
+    assert us.location_reason(make_job(company="Other", location="Remote", remote=True)) is not None
+    assert us.location_reason(make_job(company="Acme", location="Remote - EMEA", remote=True)) is not None
+
+
+def test_max_posting_age(cfg_filters):
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 11, tzinfo=timezone.utc)
+    f = JobFilter(cfg_filters, now=now)
+    assert f.check(make_job(posted_at=datetime(2026, 8, 20, tzinfo=timezone.utc))).keep          # 52 days
+    old = f.check(make_job(posted_at=datetime(2026, 8, 1, tzinfo=timezone.utc)))                   # 71 days
+    assert not old.keep and "60 days" in old.reason
+    assert f.check(make_job(posted_at=None)).keep                                                   # no date: kept
 
 
 @pytest.mark.parametrize("title", ["Frontend AI Engineer", "Full-Stack Engineer, AI", "AI Platform Engineer",

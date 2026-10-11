@@ -7,3 +7,7 @@ pytest==9.1.1
 # LLM providers (src/llm.py) — google-genai is the default; anthropic is the switch-back option
 google-genai==2.29.0
 anthropic==1.13.0
+
+# Phase 3
+Jinja2==3.1.6
+weasyprint==70.0

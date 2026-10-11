@@ -40,6 +40,11 @@ tailoring:
     ai_eval:          [AI Evaluation]
     analyst_backup:   [Data Analyst, Business Analyst, Analytics Engineer]
   headline_forbidden_words: [Senior, Lead, Principal, Staff]
+  tier: strong               # model tier for drafting and for the LLM fact-check
+  max_attempts: 3            # drafts per job before unsupported bullets are removed
+  max_run_cost_usd: 0.75     # per `python main.py tailor` run, across all jobs in it
+  # Output tokens assumed per call for the estimate (includes thinking).
+  est_output_tokens: {draft: 3000, verify: 1500}
 
 preferences:
   # Job-location preference. Lower rank = preferred; equal ranks tie. Used to rank jobs, not to filter them.
@@ -61,71 +66,72 @@ companies:
   # on that date (board returns jobs AND belongs to the intended company). tier: startup | growth | big_tech.
   # Tiers are a judgment call from funding stage / size, not verified per company — edit freely.
   # e_verify: yes | no | unknown — fill in by hand from the E-Verify employer search (matters for STEM OPT).
+  # hq: country of headquarters (US-HQ companies keep jobs listed only as "Remote").
   # Optional per company: uscis_names: [legal names] when the USCIS employer name differs.
   # --- startup (roughly Series A-B / small teams) ---
-  - {name: Rogo,                    ats: ashby,      slug: rogo,                tier: startup,  e_verify: unknown}
-  - {name: LangChain,               ats: ashby,      slug: langchain,           tier: startup,  e_verify: unknown}
-  - {name: LlamaIndex,              ats: ashby,      slug: llamaindex,          tier: startup,  e_verify: unknown}
-  - {name: Modal,                   ats: ashby,      slug: modal,               tier: startup,  e_verify: unknown}
-  - {name: Braintrust,              ats: ashby,      slug: braintrust,          tier: startup,  e_verify: unknown}
-  - {name: Arize AI,                ats: greenhouse, slug: arizeai,             tier: startup,  e_verify: unknown}
-  - {name: Galileo,                 ats: greenhouse, slug: galileo,             tier: startup,  e_verify: unknown}
-  - {name: Patronus AI,             ats: ashby,      slug: patronus,            tier: startup,  e_verify: unknown}
-  - {name: Composio,                ats: ashby,      slug: composio,            tier: startup,  e_verify: unknown}
-  - {name: Reducto,                 ats: ashby,      slug: reducto,             tier: startup,  e_verify: unknown}
-  - {name: Extend,                  ats: ashby,      slug: extend,              tier: startup,  e_verify: unknown}
-  - {name: Unstructured,            ats: ashby,      slug: unstructured,        tier: startup,  e_verify: unknown}
-  - {name: Eve,                     ats: greenhouse, slug: eve,                 tier: startup,  e_verify: unknown}
-  - {name: Eudia,                   ats: greenhouse, slug: eudia,               tier: startup,  e_verify: unknown}
-  - {name: Rillet,                  ats: ashby,      slug: rillet,              tier: startup,  e_verify: unknown}
-  - {name: Tennr,                   ats: ashby,      slug: tennr,               tier: startup,  e_verify: unknown}
-  - {name: Assort Health,           ats: ashby,      slug: assorthealth,        tier: startup,  e_verify: unknown}
-  - {name: Vapi,                    ats: ashby,      slug: vapi,                tier: startup,  e_verify: unknown}
-  - {name: Bland,                   ats: ashby,      slug: bland,               tier: startup,  e_verify: unknown}
-  - {name: Unify,                   ats: ashby,      slug: unify,               tier: startup,  e_verify: unknown}
-  - {name: Giga,                    ats: ashby,      slug: gigaml,              tier: startup,  e_verify: unknown}
-  - {name: Factory,                 ats: ashby,      slug: factory,             tier: startup,  e_verify: unknown}
-  - {name: OpenEvidence,            ats: ashby,      slug: openevidence,        tier: startup,  e_verify: unknown}
-  - {name: Numeric,                 ats: ashby,      slug: numeric,             tier: startup,  e_verify: unknown}
-  - {name: Tavus,                   ats: ashby,      slug: tavus,               tier: startup,  e_verify: unknown}
+  - {name: Rogo,                    ats: ashby,      slug: rogo,                hq: US, tier: startup,  e_verify: unknown}
+  - {name: LangChain,               ats: ashby,      slug: langchain,           hq: US, tier: startup,  e_verify: unknown}
+  - {name: LlamaIndex,              ats: ashby,      slug: llamaindex,          hq: US, tier: startup,  e_verify: unknown}
+  - {name: Modal,                   ats: ashby,      slug: modal,               hq: US, tier: startup,  e_verify: unknown}
+  - {name: Braintrust,              ats: ashby,      slug: braintrust,          hq: US, tier: startup,  e_verify: unknown}
+  - {name: Arize AI,                ats: greenhouse, slug: arizeai,             hq: US, tier: startup,  e_verify: unknown}
+  - {name: Galileo,                 ats: greenhouse, slug: galileo,             hq: US, tier: startup,  e_verify: unknown}
+  - {name: Patronus AI,             ats: ashby,      slug: patronus,            hq: US, tier: startup,  e_verify: unknown}
+  - {name: Composio,                ats: ashby,      slug: composio,            hq: US, tier: startup,  e_verify: unknown}
+  - {name: Reducto,                 ats: ashby,      slug: reducto,             hq: US, tier: startup,  e_verify: unknown}
+  - {name: Extend,                  ats: ashby,      slug: extend,              hq: US, tier: startup,  e_verify: unknown}
+  - {name: Unstructured,            ats: ashby,      slug: unstructured,        hq: US, tier: startup,  e_verify: unknown}
+  - {name: Eve,                     ats: greenhouse, slug: eve,                 hq: US, tier: startup,  e_verify: unknown}
+  - {name: Eudia,                   ats: greenhouse, slug: eudia,               hq: US, tier: startup,  e_verify: unknown}
+  - {name: Rillet,                  ats: ashby,      slug: rillet,              hq: US, tier: startup,  e_verify: unknown}
+  - {name: Tennr,                   ats: ashby,      slug: tennr,               hq: US, tier: startup,  e_verify: unknown}
+  - {name: Assort Health,           ats: ashby,      slug: assorthealth,        hq: US, tier: startup,  e_verify: unknown}
+  - {name: Vapi,                    ats: ashby,      slug: vapi,                hq: US, tier: startup,  e_verify: unknown}
+  - {name: Bland,                   ats: ashby,      slug: bland,               hq: US, tier: startup,  e_verify: unknown}
+  - {name: Unify,                   ats: ashby,      slug: unify,               hq: US, tier: startup,  e_verify: unknown}
+  - {name: Giga,                    ats: ashby,      slug: gigaml,              hq: US, tier: startup,  e_verify: unknown}
+  - {name: Factory,                 ats: ashby,      slug: factory,             hq: US, tier: startup,  e_verify: unknown}
+  - {name: OpenEvidence,            ats: ashby,      slug: openevidence,        hq: US, tier: startup,  e_verify: unknown}
+  - {name: Numeric,                 ats: ashby,      slug: numeric,             hq: US, tier: startup,  e_verify: unknown}
+  - {name: Tavus,                   ats: ashby,      slug: tavus,               hq: US, tier: startup,  e_verify: unknown}
   # --- growth (later stage / larger) ---
-  - {name: Sierra,                  ats: ashby,      slug: sierra,              tier: growth,   e_verify: unknown}
-  - {name: Decagon,                 ats: ashby,      slug: decagon,             tier: growth,   e_verify: unknown}
-  - {name: Harvey,                  ats: ashby,      slug: harvey,              tier: growth,   e_verify: unknown}
-  - {name: Glean,                   ats: greenhouse, slug: gleanwork,           tier: growth,   e_verify: unknown}
-  - {name: ElevenLabs,              ats: ashby,      slug: elevenlabs,          tier: growth,   e_verify: unknown}
-  - {name: Cohere,                  ats: ashby,      slug: cohere,              tier: growth,   e_verify: unknown}
-  - {name: Perplexity,              ats: ashby,      slug: perplexity,          tier: growth,   e_verify: unknown}
-  - {name: Cursor,                  ats: ashby,      slug: cursor,              tier: growth,   e_verify: unknown}
-  - {name: Cognition,               ats: ashby,      slug: cognition,           tier: growth,   e_verify: unknown}
-  - {name: Writer,                  ats: ashby,      slug: writer,              tier: growth,   e_verify: unknown}
-  - {name: Hex,                     ats: ashby,      slug: hex,                 tier: growth,   e_verify: unknown}
-  - {name: Abridge,                 ats: ashby,      slug: abridge,             tier: growth,   e_verify: unknown}
-  - {name: Ambience Healthcare,     ats: ashby,      slug: ambiencehealthcare,  tier: growth,   e_verify: unknown}
-  - {name: Cresta,                  ats: greenhouse, slug: cresta,              tier: growth,   e_verify: unknown}
-  - {name: Together AI,             ats: greenhouse, slug: togetherai,          tier: growth,   e_verify: unknown}
-  - {name: Baseten,                 ats: ashby,      slug: baseten,             tier: growth,   e_verify: unknown}
-  - {name: Fireworks AI,            ats: ashby,      slug: fireworks,           tier: growth,   e_verify: unknown}
-  - {name: Snorkel AI,              ats: greenhouse, slug: snorkelai,           tier: growth,   e_verify: unknown}
-  - {name: EliseAI,                 ats: ashby,      slug: eliseai,             tier: growth,   e_verify: unknown}
-  - {name: Ironclad,                ats: ashby,      slug: ironcladhq,          tier: growth,   e_verify: unknown}
-  - {name: Handshake,               ats: ashby,      slug: handshake,           tier: growth,   e_verify: unknown}
-  - {name: Invisible Technologies,  ats: greenhouse, slug: invisibletech,       tier: growth,   e_verify: unknown}
-  - {name: Deepgram,                ats: ashby,      slug: deepgram,            tier: growth,   e_verify: unknown}
-  - {name: Vanta,                   ats: ashby,      slug: vanta,               tier: growth,   e_verify: unknown}
+  - {name: Sierra,                  ats: ashby,      slug: sierra,              hq: US, tier: growth,   e_verify: unknown}
+  - {name: Decagon,                 ats: ashby,      slug: decagon,             hq: US, tier: growth,   e_verify: unknown}
+  - {name: Harvey,                  ats: ashby,      slug: harvey,              hq: US, tier: growth,   e_verify: unknown}
+  - {name: Glean,                   ats: greenhouse, slug: gleanwork,           hq: US, tier: growth,   e_verify: unknown}
+  - {name: ElevenLabs,              ats: ashby,      slug: elevenlabs,          hq: GB, tier: growth,   e_verify: unknown}
+  - {name: Cohere,                  ats: ashby,      slug: cohere,              hq: CA, tier: growth,   e_verify: unknown}
+  - {name: Perplexity,              ats: ashby,      slug: perplexity,          hq: US, tier: growth,   e_verify: unknown}
+  - {name: Cursor,                  ats: ashby,      slug: cursor,              hq: US, tier: growth,   e_verify: unknown}
+  - {name: Cognition,               ats: ashby,      slug: cognition,           hq: US, tier: growth,   e_verify: unknown}
+  - {name: Writer,                  ats: ashby,      slug: writer,              hq: US, tier: growth,   e_verify: unknown}
+  - {name: Hex,                     ats: ashby,      slug: hex,                 hq: US, tier: growth,   e_verify: unknown}
+  - {name: Abridge,                 ats: ashby,      slug: abridge,             hq: US, tier: growth,   e_verify: unknown}
+  - {name: Ambience Healthcare,     ats: ashby,      slug: ambiencehealthcare,  hq: US, tier: growth,   e_verify: unknown}
+  - {name: Cresta,                  ats: greenhouse, slug: cresta,              hq: US, tier: growth,   e_verify: unknown}
+  - {name: Together AI,             ats: greenhouse, slug: togetherai,          hq: US, tier: growth,   e_verify: unknown}
+  - {name: Baseten,                 ats: ashby,      slug: baseten,             hq: US, tier: growth,   e_verify: unknown}
+  - {name: Fireworks AI,            ats: ashby,      slug: fireworks,           hq: US, tier: growth,   e_verify: unknown}
+  - {name: Snorkel AI,              ats: greenhouse, slug: snorkelai,           hq: US, tier: growth,   e_verify: unknown}
+  - {name: EliseAI,                 ats: ashby,      slug: eliseai,             hq: US, tier: growth,   e_verify: unknown}
+  - {name: Ironclad,                ats: ashby,      slug: ironcladhq,          hq: US, tier: growth,   e_verify: unknown}
+  - {name: Handshake,               ats: ashby,      slug: handshake,           hq: US, tier: growth,   e_verify: unknown}
+  - {name: Invisible Technologies,  ats: greenhouse, slug: invisibletech,       hq: US, tier: growth,   e_verify: unknown}
+  - {name: Deepgram,                ats: ashby,      slug: deepgram,            hq: US, tier: growth,   e_verify: unknown}
+  - {name: Vanta,                   ats: ashby,      slug: vanta,               hq: US, tier: growth,   e_verify: unknown}
   # --- Atlanta-based ---
-  - {name: Florence Healthcare,     ats: greenhouse, slug: florencehealthcare,  tier: growth,   e_verify: unknown}
-  - {name: Fullstory,               ats: ashby,      slug: fullstory,           tier: growth,   e_verify: unknown}
-  - {name: Salesloft,               ats: greenhouse, slug: salesloft,           tier: growth,   e_verify: unknown}
-  - {name: Calendly,                ats: greenhouse, slug: calendly,            tier: growth,   e_verify: unknown}
-  - {name: OneTrust,                ats: greenhouse, slug: onetrust,            tier: growth,   e_verify: unknown}
+  - {name: Florence Healthcare,     ats: greenhouse, slug: florencehealthcare,  hq: US, tier: growth,   e_verify: unknown}
+  - {name: Fullstory,               ats: ashby,      slug: fullstory,           hq: US, tier: growth,   e_verify: unknown}
+  - {name: Salesloft,               ats: greenhouse, slug: salesloft,           hq: US, tier: growth,   e_verify: unknown}
+  - {name: Calendly,                ats: greenhouse, slug: calendly,            hq: US, tier: growth,   e_verify: unknown}
+  - {name: OneTrust,                ats: greenhouse, slug: onetrust,            hq: US, tier: growth,   e_verify: unknown}
   # --- big_tech (frontier labs and large public companies) ---
-  - {name: OpenAI,                  ats: ashby,      slug: openai,              tier: big_tech, e_verify: unknown}
-  - {name: Anthropic,               ats: greenhouse, slug: anthropic,           tier: big_tech, e_verify: unknown}
-  - {name: Scale AI,                ats: greenhouse, slug: scaleai,             tier: big_tech, e_verify: unknown}
-  - {name: CoreWeave,               ats: greenhouse, slug: coreweave,           tier: big_tech, e_verify: unknown}
-  - {name: Snowflake,               ats: ashby,      slug: snowflake,           tier: big_tech, e_verify: unknown}
-  - {name: Datadog,                 ats: greenhouse, slug: datadog,             tier: big_tech, e_verify: unknown}
+  - {name: OpenAI,                  ats: ashby,      slug: openai,              hq: US, tier: big_tech, e_verify: unknown}
+  - {name: Anthropic,               ats: greenhouse, slug: anthropic,           hq: US, tier: big_tech, e_verify: unknown}
+  - {name: Scale AI,                ats: greenhouse, slug: scaleai,             hq: US, tier: big_tech, e_verify: unknown}
+  - {name: CoreWeave,               ats: greenhouse, slug: coreweave,           hq: US, tier: big_tech, e_verify: unknown}
+  - {name: Snowflake,               ats: ashby,      slug: snowflake,           hq: US, tier: big_tech, e_verify: unknown}
+  - {name: Datadog,                 ats: greenhouse, slug: datadog,             hq: US, tier: big_tech, e_verify: unknown}
 
 jsearch:
   # Aggregator source (RapidAPI). Runs only when enabled AND JSEARCH_API_KEY is set in .env.
@@ -155,6 +161,8 @@ filters:
   role_families:
     - name: ai_engineer
       patterns: ['\bai engineer', '\bapplied ai\b', '\bgen ?ai\b', '\bgenerative ai\b', '\bllms?\b', '\bai/ml engineer', '\bengineer\b.*\b(ai|llm)\b']
+      # Evaluation titles belong to ai_eval even though they also say AI/LLM.
+      exclude: ['\b(ai|model|llm) evaluations?\b', '\bevals\b', '\bai quality\b']
     - name: ai_solutions
       patterns: ['\bsolutions? (engineer|architect)', '\bai solutions\b', '\bai deployment\b']
     - name: forward_deployed
@@ -162,7 +170,9 @@ filters:
     - name: ai_consultant
       patterns: ['\bai (consultant|strategist|strategy|advisor|transformation)\b']
     - name: ai_eval
-      patterns: ['\bevals?\b', '\bevaluations?\b', '\bai quality\b', '\bmodel quality\b']
+      patterns: ['\bai evaluations?\b', '\bmodel evaluations?\b', '\bllm evaluations?\b', '\bevals\b', '\bai quality\b']
+      # A family can exclude titles: a match here skips this family (later families may still match).
+      exclude: ['\bresearch scientists?\b', '\bback[- ]?end\b']
     - name: analyst_backup
       patterns: ['\bdata analyst\b', '\bbusiness analyst\b', '\banalytics engineer\b']
 
@@ -209,5 +219,9 @@ filters:
   # "Remote (United States)", "US-based remote", or remote + a US location). Remote roles limited to other
   # countries/regions are dropped, and so are remote roles restricted to states outside remote_allowed_states.
   # A bare "Remote" with no country is kept only if the posting text says US-remote.
+  # A bare "Remote" is also kept when the company's hq (in `companies`) is US.
   us_only: true
   remote_allowed_states: [GA, CA, TX]
+
+  # Postings older than this (by the ATS's published date) are dropped. Jobs with no date are kept.
+  max_posting_age_days: 60

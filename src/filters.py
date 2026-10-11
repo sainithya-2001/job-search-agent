@@ -1,6 +1,7 @@
 """Rule-based exclusions that run before any LLM call (cheap, deterministic, explainable)."""
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from src.models import Job
 
@@ -61,12 +62,17 @@ class FilterResult:
 class JobFilter:
     """Compiles config patterns once; `check(job)` is then pure regex work."""
 
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, us_hq_companies: set[str] | None = None, now: datetime | None = None):
+        """cfg = config.yaml `filters`. us_hq_companies: names whose bare "Remote" jobs are kept."""
         flags = re.I
         self.families = [
-            (fam["name"], [re.compile(p, flags) for p in fam["patterns"]])
+            (fam["name"], [re.compile(p, flags) for p in fam["patterns"]],
+             [re.compile(p, flags) for p in fam.get("exclude", [])])
             for fam in cfg["role_families"]
         ]
+        self.us_hq = us_hq_companies or set()
+        self.max_age = cfg.get("max_posting_age_days")
+        self.now = now or datetime.now(timezone.utc)
         self.title_exclude = [re.compile(p, flags) for p in cfg.get("title_exclude", [])]
         self.unless_ai = [re.compile(p, flags) for p in cfg.get("title_exclude_unless_ai", [])]
         self.ai_terms = [re.compile(p, flags) for p in cfg.get("ai_title_terms", [])]
@@ -76,8 +82,8 @@ class JobFilter:
         self.allowed_states = set(cfg.get("remote_allowed_states", ["GA", "CA", "TX"]))
 
     def role_family(self, title: str) -> str | None:
-        for name, patterns in self.families:
-            if any(p.search(title) for p in patterns):
+        for name, patterns, excludes in self.families:
+            if any(p.search(title) for p in patterns) and not any(x.search(title) for x in excludes):
                 return name
         return None
 
@@ -101,7 +107,7 @@ class JobFilter:
         if not segments:
             segments = ["Remote"] if job.remote else []
         kinds = [self._segment(s) for s in segments]
-        if "bare_remote" in kinds and _DESC_US_REMOTE.search(job.description or ""):
+        if "bare_remote" in kinds and (job.company in self.us_hq or _DESC_US_REMOTE.search(job.description or "")):
             kinds = ["ok" if k == "bare_remote" else k for k in kinds]
         if "ok" in kinds:
             # Remote-only jobs can still be restricted to particular states in the posting text.
@@ -127,6 +133,11 @@ class JobFilter:
                 return FilterResult(False, "title: excluded seniority / specialty")
         if any(p.search(job.title) for p in self.unless_ai) and not any(p.search(job.title) for p in self.ai_terms):
             return FilterResult(False, "title: non-AI mobile/embedded/backend")
+        if self.max_age and job.posted_at:
+            posted = job.posted_at if job.posted_at.tzinfo else job.posted_at.replace(tzinfo=timezone.utc)
+            age = (self.now - posted).days
+            if age > self.max_age:
+                return FilterResult(False, f"posted more than {self.max_age} days ago")
         if job.employment_type and any(t in job.employment_type.lower() for t in self.bad_types):
             return FilterResult(False, f"employment type: {job.employment_type}")
         if self.us_only:

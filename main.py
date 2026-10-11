@@ -39,7 +39,12 @@ def _reason_bucket(reason: str) -> str:
 def _job_from_row(r) -> Job:
     return Job(id=r["id"], company=r["company"], title=r["title"], location=r["location"] or "",
                remote=bool(r["remote"]), url=r["url"] or "", description=r["description"] or "",
-               source=r["source"], employment_type=r["employment_type"])
+               source=r["source"], employment_type=r["employment_type"],
+               posted_at=datetime.fromisoformat(r["posted_at"]) if r["posted_at"] else None)
+
+
+def job_filter(cfg: dict) -> JobFilter:
+    return JobFilter(cfg["filters"], us_hq_companies={c["name"] for c in cfg["companies"] if c.get("hq") == "US"})
 
 
 def cmd_search(args) -> None:
@@ -68,7 +73,7 @@ def cmd_search(args) -> None:
     else:
         print("JSearch: skipped (" + ("disabled in config" if not js_cfg.get("enabled") else "no JSEARCH_API_KEY in .env") + ")")
 
-    jf = JobFilter(cfg["filters"])
+    jf = job_filter(cfg)
     kept, hints, reasons = [], {}, Counter()
     for job in fetched.jobs:
         r = jf.check(job)
@@ -171,6 +176,114 @@ def cmd_score(args) -> None:
     store.close()
 
 
+def cmd_tailor(args) -> None:
+    import json as _json
+    from src.llm import cost_usd, estimate_tokens, get_llm
+    from src.render import RenderError, render_html, slug, verification_report, write_pdf
+    from src.resume import citable_texts, load_master, project_tech, tailoring_source
+    from src.tailor import SYSTEM, build_prompt, tailor_job
+    from src.verify import Verifier
+
+    cfg = load_config()
+    tcfg, pricing = cfg["tailoring"], cfg["llm"].get("pricing", {})
+    store = Store(ROOT / "data" / "jobs.db")
+    master = load_master(ROOT / "data" / "master_resume.yaml")
+    texts, tech, source = citable_texts(master), project_tech(master), tailoring_source(master)
+    llm = get_llm(cfg)
+    model = llm.models[tcfg.get("tier", "strong")]
+
+    pairs = []
+    for jid in args.job_ids:
+        job = store.conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+        if not job:
+            print(f"Unknown job id: {jid}")
+            return
+        pairs.append((job, store.conn.execute("SELECT * FROM scores WHERE job_id=?", (jid,)).fetchone()))
+
+    # Estimate: one draft + one LLM fact-check per job, assuming ~1.5 attempts on average (worst case: max_attempts).
+    est_out = tcfg["est_output_tokens"]
+    per_job = []
+    for job, sc in pairs:
+        d_in = estimate_tokens(SYSTEM + build_prompt(job, sc, source, [], None)) + 800
+        per_job.append((cost_usd(model, d_in, est_out["draft"], pricing) or 0)
+                       + (cost_usd(model, 3000, est_out["verify"], pricing) or 0))
+    expected, worst = sum(per_job) * 1.5, sum(per_job) * tcfg["max_attempts"]
+    cap = tcfg["max_run_cost_usd"]
+    print(f"Tailoring {len(pairs)} job(s) with {model}")
+    print(f"Estimated cost: ~${expected:.3f} expected, ${worst:.3f} if every job needs {tcfg['max_attempts']} attempts"
+          f"  |  run cap ${cap:.2f}")
+    if expected > cap:
+        print("Refusing to run: expected cost exceeds tailoring.max_run_cost_usd.")
+        return
+
+    out_dir = ROOT / "output" / "resumes"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    spent = 0.0
+    for job, sc in pairs:
+        family = (sc["role_family"] if sc else None) or job["role_hint"]
+        verifier = Verifier(master, texts, tech, cfg, family)
+        res = tailor_job(job, sc, master, source, verifier, llm, cfg, budget_left=cap - spent)
+        spent += res.cost
+        base = out_dir / f"{slug(job['company'])}_{slug(job['title'])}"
+        (base.parent / (base.name + "_verification.md")).write_text(verification_report(job, res, res.cost), encoding="utf-8")
+        files = [base.name + "_verification.md"]
+        if res.resume is not None:
+            base.with_suffix(".json").write_text(_json.dumps(res.resume.model_dump(), indent=2), encoding="utf-8")
+            files.append(base.name + ".json")
+        if res.status.startswith("PASS"):
+            html = render_html(res.resume, master)
+            base.with_suffix(".html").write_text(html, encoding="utf-8")
+            files.append(base.name + ".html")
+            store.set_status(job["id"], "tailored")
+            if args.pdf:
+                try:
+                    write_pdf(html, base.with_suffix(".pdf"))
+                    files.append(base.name + ".pdf")
+                except RenderError as e:
+                    print(f"  ! {e}")
+        print(f"  {res.status:22s} {job['company'][:16]:16s} {job['title'][:40]:40s} attempts={res.attempts} "
+              f"removed={len(res.removed)} ${res.cost:.4f}  -> {', '.join(files)}")
+    print(f"\nActual cost: ${spent:.4f}  (output in {out_dir.relative_to(ROOT)})")
+    store.close()
+
+
+def cmd_render(args) -> None:
+    """Re-render already-verified resumes from their saved JSON (no API calls)."""
+    from src.models import TailoredResume
+    from src.render import RenderError, fallback_summary, render_html, slug, write_pdf
+    from src.resume import load_master
+
+    store = Store(ROOT / "data" / "jobs.db")
+    master = load_master(ROOT / "data" / "master_resume.yaml")
+    out_dir = ROOT / "output" / "resumes"
+    for jid in args.job_ids:
+        job = store.conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+        base = out_dir / f"{slug(job['company'])}_{slug(job['title'])}" if job else None
+        if not job or not base.with_suffix(".json").exists():
+            print(f"  ! no verified resume for {jid} — run `tailor` first")
+            continue
+        report = (out_dir / (base.name + "_verification.md")).read_text(encoding="utf-8")
+        if "**Status:** PASS" not in report:
+            print(f"  ! {job['company']}: verification did not pass; not rendering")
+            continue
+        tr = TailoredResume.model_validate_json(base.with_suffix(".json").read_text(encoding="utf-8"))
+        html = render_html(tr, master)
+        base.with_suffix(".html").write_text(html, encoding="utf-8")
+        made = [base.name + ".html"]
+        if not tr.summary.text and "fallback summary" not in report:
+            (out_dir / (base.name + "_verification.md")).write_text(
+                report + f"\n**Summary:** the model's summary was removed; the resume uses the fixed fallback summary "
+                         f"built only from master facts: \"{fallback_summary(master)}\"\n", encoding="utf-8")
+        if args.pdf:
+            try:
+                write_pdf(html, base.with_suffix(".pdf"))
+                made.append(base.name + ".pdf")
+            except RenderError as e:
+                print(f"  ! {e}")
+        print(f"  {job['company'][:16]:16s} -> {', '.join(made)}")
+    store.close()
+
+
 def cmd_skills_gap(args) -> None:
     from src.resume import load_master, profile_text
     from src.skills_gap import build_report
@@ -199,6 +312,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--limit", type=int, default=None, help="jobs to score (default: scoring.default_limit)")
     p.add_argument("--mix", action="store_true", help="pick jobs per scoring.mix buckets instead of top-N")
     p.set_defaults(func=cmd_score)
+    p = sub.add_parser("tailor", help="Tailor + verify resumes for job ids (HTML; --pdf for PDF)")
+    p.add_argument("job_ids", nargs="+")
+    p.add_argument("--pdf", action="store_true", help="also write PDFs (needs a working PDF engine)")
+    p.set_defaults(func=cmd_tailor)
+    p = sub.add_parser("render", help="Re-render verified resumes from saved JSON (no API calls)")
+    p.add_argument("job_ids", nargs="+")
+    p.add_argument("--pdf", action="store_true")
+    p.set_defaults(func=cmd_render)
     p = sub.add_parser("skills-gap", help="Top skills asked for across scored jobs vs. the master resume")
     p.add_argument("--top", type=int, default=20)
     p.set_defaults(func=cmd_skills_gap)
