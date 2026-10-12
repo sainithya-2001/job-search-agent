@@ -34,6 +34,10 @@ Output rules:
 - Do not write a summary (it is chosen separately).
 - Follow the JOB-SPECIFIC RULES exactly.
 - Emphasize what the job asks for (see MATCHED and GAPS from the scorer), but never claim a gap you can't source.
+- ATS KEYWORDS: include the skill ids listed for keywords the candidate HAS in skill_groups (and the headline when
+  they're central); the resume shows them in the posting's wording automatically. In bullets, use the posting's
+  exact wording only where the cited source states that fact (approved wordings are listed). Never mention a
+  keyword listed under DON'T HAVE.
 """
 
 
@@ -64,14 +68,29 @@ def job_rules(verifier: Verifier) -> list[str]:
     return rules
 
 
-def build_prompt(job, score_row, source: str, verifier: Verifier, feedback: list[str] | None) -> str:
+def keyword_lines(coverage, verifier: Verifier) -> list[str]:
+    if coverage is None or not coverage.matches:
+        return []
+    lines = ["", "ATS KEYWORDS from the posting (most important first)", "HAVE:"]
+    for m in coverage.have:
+        where = (f"skill id {m.skill_id} (shown as '{m.display}')" if m.skill_id
+                 else f"stated in {m.source_id}: use this wording in a bullet citing {m.source_id}")
+        lines.append(f"- '{m.keyword.text}' [{m.keyword.importance}]: {where}")
+    lines.append("DON'T HAVE (never claim): " + (", ".join(f"'{m.keyword.text}'" for m in coverage.missing) or "none"))
+    if verifier.equiv_notes:
+        lines.append("APPROVED WORDINGS: " + "; ".join(verifier.equiv_notes))
+    return lines
+
+
+def build_prompt(job, score_row, source: str, verifier: Verifier, feedback: list[str] | None,
+                 coverage=None) -> str:
     matched = json.loads(score_row["matched_skills"] or "[]") if score_row else []
     gaps = json.loads(score_row["gaps"] or "[]") if score_row else []
     parts = [f"JOB: {job['title']} at {job['company']} ({job['location']})",
              f"ALLOWED ROLE LABELS for this job: {verifier.allowed_labels or 'none — use null'}",
              f"MATCHED (from scorer): {', '.join(matched) or 'n/a'}",
              f"GAPS (from scorer; do NOT claim these): {', '.join(gaps) or 'n/a'}",
-             "", "JOB-SPECIFIC RULES", *[f"- {r}" for r in job_rules(verifier)],
+             "", "JOB-SPECIFIC RULES", *[f"- {r}" for r in job_rules(verifier)], *keyword_lines(coverage, verifier),
              "", "POSTING", job["description"], "", "SOURCE (master resume facts, cite by id)", source]
     if feedback:
         parts += ["", "YOUR PREVIOUS DRAFT WAS REJECTED. Fix every problem below; if a claim can't be sourced, drop it:"]
@@ -100,7 +119,7 @@ def _remove_failing(tr: TailoredResume, res: VerificationResult, verifier: Verif
 
 
 def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, llm: LLMProvider, cfg: dict,
-               budget_left: float) -> TailorResult:
+               budget_left: float, coverage=None) -> TailorResult:
     tcfg, pricing = cfg["tailoring"], cfg["llm"].get("pricing", {})
     tier = tcfg.get("tier", "strong")
     out = TailorResult(None, VerificationResult(), 0)
@@ -117,7 +136,7 @@ def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, ll
             out.attempt_issues.append(["stopped: tailoring budget reached"])
             break
         out.attempts = attempt
-        draft = llm.generate_json(build_prompt(job, score_row, source, verifier, feedback),
+        draft = llm.generate_json(build_prompt(job, score_row, source, verifier, feedback, coverage),
                                   TailoredResume, tier=tier, system=SYSTEM)
         spend(draft)
         tr = draft.data

@@ -40,8 +40,11 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")[:60]
 
 
-def view_model(tr: TailoredResume, master: dict, summary: str) -> dict:
+def view_model(tr: TailoredResume, master: dict, summary: str, wording: dict[str, str] | None = None) -> dict:
+    """wording: skill id -> display text in the posting's wording (src/keywords.py; only approved names/aliases/
+    covers of that same skill), used in the headline and skills section."""
     skills = {s["id"]: s["name"] for s in master["skills"]}
+    skills.update({k: v for k, v in (wording or {}).items() if k in skills})
     exp = {e["id"]: e for e in master["experience"]}
     proj = {p["id"]: p for p in master["projects"]}
     c = master["contact"]
@@ -70,9 +73,9 @@ def view_model(tr: TailoredResume, master: dict, summary: str) -> dict:
     }
 
 
-def render_html(tr: TailoredResume, master: dict, summary: str) -> str:
+def render_html(tr: TailoredResume, master: dict, summary: str, wording: dict[str, str] | None = None) -> str:
     env = Environment(loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(["html", "j2"]))
-    return env.get_template("resume.html.j2").render(**view_model(tr, master, summary))
+    return env.get_template("resume.html.j2").render(**view_model(tr, master, summary, wording))
 
 
 _PAGE = re.compile(rb"/Type\s*/Page(?!s)")
@@ -95,14 +98,15 @@ def write_pdf(html: str, path: Path) -> int:
 
 
 def fit_one_page(tr: TailoredResume, master: dict, summary: str, path: Path,
-                 optional: set[str], required: set[str]) -> tuple[str, int, list[str]]:
+                 optional: set[str], required: set[str],
+                 wording: dict[str, str] | None = None) -> tuple[str, int, list[str]]:
     """Write a PDF; while it runs past one page, cut content (never add or reword):
     1) drop optional experience entries (last first), then
     2) drop the last bullet of the section with the most bullets, skipping required bullets and sole bullets.
     Returns (final html, pages, list of cuts)."""
     cuts = []
     while True:
-        html = render_html(tr, master, summary)
+        html = render_html(tr, master, summary, wording)
         pages = write_pdf(html, path)
         if pages <= 1:
             return html, pages, cuts

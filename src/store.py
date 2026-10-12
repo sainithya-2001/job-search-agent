@@ -79,6 +79,14 @@ CREATE TABLE IF NOT EXISTS applications (
     shadow_blockers  TEXT                      -- JSON list of failed gates
 );
 
+-- ATS keywords extracted from each posting (src/keywords.py), cached so extraction is paid for once per job.
+CREATE TABLE IF NOT EXISTS job_keywords (
+    job_id       TEXT PRIMARY KEY REFERENCES jobs(id),
+    keywords     TEXT NOT NULL,              -- JSON list of {text, kind, importance}
+    model        TEXT,
+    extracted_at TEXT NOT NULL
+);
+
 -- Phase 5 review queue: what the form asks and how much the answer bank covers, read before Nithya opens it.
 CREATE TABLE IF NOT EXISTS apply_queue (
     job_id           TEXT PRIMARY KEY REFERENCES jobs(id),

@@ -212,7 +212,7 @@ def cmd_tailor(args) -> None:
 def cmd_render(args) -> None:
     """Re-render already-verified resumes from their saved JSON (no API calls)."""
     from src.models import TailoredResume
-    from src.pipeline import family_and_title, output_base, publish, tailor_context
+    from src.pipeline import family_and_title, job_coverage, output_base, publish, tailor_context
     from src.verify import Verifier
 
     cfg = load_config()
@@ -236,7 +236,8 @@ def cmd_render(args) -> None:
             print(f"  ! {job['company']}: saved resume no longer passes current rules ({len(recheck.issues)} issue(s)); "
                   f"re-run `tailor`")
             continue
-        files, _, _ = publish(tr, ctx.master, verifier, base, report, args.pdf)
+        cov, _ = job_coverage(store, job, ctx)            # cached keywords only: re-rendering never calls the API
+        files, _, _ = publish(tr, ctx.master, verifier, base, report, args.pdf, cov.wording() if cov else None)
         print(f"  {job['company'][:16]:16s} -> {', '.join(files)}")
     store.close()
 
@@ -283,6 +284,54 @@ def cmd_run(args) -> None:
     print()
     print(report)
     print(f"Logs: {log.path.relative_to(ROOT)}, {summary_path.relative_to(ROOT)}")
+    store.close()
+
+
+def cmd_keywords(args) -> None:
+    """Read-only ATS keyword coverage for tailored resumes (no re-tailoring). Keyword extraction is the only paid
+    step (fast tier, cached per job); without --run this only prints its estimated cost."""
+    import re as _re
+    from src.keywords import EXTRACT_SYSTEM, ESTIMATE_OUTPUT_TOKENS, cached, extract_prompt, resume_coverage, \
+        report_section, resume_section
+    from src.llm import cost_usd, estimate_tokens, get_llm
+    from src.pipeline import job_coverage, output_base, resume_text, tailor_context
+
+    cfg = load_config()
+    store = Store(ROOT / "data" / "jobs.db")
+    if args.job_ids:
+        jobs = [store.conn.execute("SELECT * FROM jobs WHERE id=?", (j,)).fetchone() for j in args.job_ids]
+    else:
+        jobs = store.jobs_by_status("tailored")
+    jobs = [j for j in jobs if j is not None and output_base(j).with_suffix(".html").exists()]
+    todo = [j for j in jobs if cached(store, j["id"]) is None]
+    llm = get_llm(cfg)
+    model, pricing = llm.models["fast"], cfg["llm"].get("pricing", {})
+    est = sum(cost_usd(model, estimate_tokens(EXTRACT_SYSTEM + extract_prompt(j)) + 300, ESTIMATE_OUTPUT_TOKENS,
+                       pricing) or 0 for j in todo)
+    print(f"{len(jobs)} tailored resume(s); keywords cached for {len(jobs) - len(todo)}, "
+          f"{len(todo)} need extraction with {model}: estimated ${est:.4f}")
+    if todo and not args.run:
+        print("Nothing spent. Re-run with --run to extract keywords and check coverage.")
+        store.close()
+        return
+    ctx = tailor_context()
+    spent = 0.0
+    print(f"\n{'Company':14s} {'Title':40s} {'Exact':>6s} {'Other words':>11s} {'Not shown':>9s} {'Missing':>7s}")
+    for j in jobs:
+        cov, resp = job_coverage(store, j, ctx, llm, cfg)
+        if resp:
+            spent += cost_usd(resp.model, resp.input_tokens, resp.output_tokens, pricing) or 0
+        base = output_base(j)
+        rc = resume_coverage(resume_text(base.with_suffix(".html").read_text(encoding="utf-8")), cov, ctx.master)
+        rep = base.parent / (base.name + "_verification.md")
+        old = rep.read_text(encoding="utf-8") if rep.exists() else ""
+        old = _re.split(r"\n## Keyword coverage \(ATS\)", old)[0].rstrip() + "\n"     # replace an earlier section
+        rep.write_text(old + "\n" + report_section(cov) + "\n" + resume_section(rc), encoding="utf-8")
+        print(f"{j['company'][:14]:14s} {j['title'][:40]:40s} {f'{len(rc.exact)}/{rc.total}':>6s} "
+              f"{len(rc.synonym):>11d} {len(rc.not_shown):>9d} {len(rc.missing):>7d}   ({rc.pct(len(rc.exact))}%)")
+        print(f"{'':14s}   not shown: {', '.join(rc.not_shown) or '-'}")
+        print(f"{'':14s}   don't have: {', '.join(rc.missing) or '-'}")
+    print(f"\nActual extraction cost: ${spent:.4f}. Coverage sections written to each *_verification.md.")
     store.close()
 
 
@@ -374,6 +423,10 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run", help="Daily agent cycle: search, score, tailor 65+ (never applies)")
     p.add_argument("--dry-run", action="store_true", help="plan and estimate cost; no LLM calls, no DB writes")
     p.set_defaults(func=cmd_run)
+    p = sub.add_parser("keywords", help="ATS keyword coverage of tailored resumes (read-only; extraction is cached)")
+    p.add_argument("job_ids", nargs="*")
+    p.add_argument("--run", action="store_true", help="spend the (estimated) extraction cost and check coverage")
+    p.set_defaults(func=cmd_keywords)
     p = sub.add_parser("answers-check", help="Show which answer-bank entries you still need to fill in")
     p.set_defaults(func=cmd_answers_check)
     p = sub.add_parser("queue", help="Read forms for tailored jobs, match the answer bank, run shadow gates")

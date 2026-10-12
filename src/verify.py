@@ -35,8 +35,10 @@ def numbers_in(text: str) -> set[str]:
 
 
 def _compile_terms(master: dict, tech: dict[str, list[str]]):
-    """Tool/skill terms: the skills-gap vocabulary plus every master skill name and project tech name."""
+    """Tool/skill terms: the skills-gap vocabulary plus every master skill name, approved alias/covers wording, and
+    project tech name."""
     names = {s["name"] for s in master["skills"]} | {n for v in tech.values() for n in v}
+    names |= {w for s in master["skills"] for w in (s.get("aliases") or []) + (s.get("covers") or [])}
     terms = [(name, [re.compile(p, re.I) for p in pats]) for name, pats in VOCAB]
     terms += [(n, [re.compile(r"(?<![\w])" + re.escape(n) + r"(?![\w])", re.I)]) for n in sorted(names)]
     return terms
@@ -140,6 +142,22 @@ class Verifier:
         cw = univ["coursework"]
         self.course_ids = {c["id"] for c in cw.get("core", []) + (cw.get("electives") or [])}
         self.terms = _compile_terms(master, tech)
+        from src.keywords import equivalents
+        # Approved equivalent wordings (master_resume.yaml aliases/covers): if a cited source names one wording of a
+        # skill, the others may be used for it ("ELT" where the source says ETL/ELT; "data warehouse" for Snowflake).
+        self.equiv = [(allowed, [re.compile(r"(?<![\w])" + re.escape(w) + r"(?![\w])", re.I) for w in triggers])
+                      for triggers, allowed in equivalents(master)]
+        self.equiv_notes = []
+        for s in master["skills"]:
+            if s.get("aliases"):
+                self.equiv_notes.append(f"{s['name']} may also be written as {', '.join(s['aliases'])}")
+            if s.get("covers"):
+                self.equiv_notes.append(f"{s['name']} may be described as {', '.join(s['covers'])} "
+                                        f"(not the reverse)")
+
+    def _with_equivalents(self, src: str) -> str:
+        extra = [w for allowed, triggers in self.equiv if any(p.search(src) for p in triggers) for w in allowed]
+        return src + ("\n" + ", ".join(extra) if extra else "")
 
     def required_bullets(self) -> list[str]:
         return [i for r in self.t.get("required_bullets", []) if _applies(r, self.family, self.title) for i in r["ids"]]
@@ -169,8 +187,9 @@ class Verifier:
         if extra_nums:
             ct.numbers_ok = False
             res.issues.append(Issue(where, f"number(s) not in cited sources: {sorted(extra_nums)}"))
+        src_terms = self._with_equivalents(src)
         extra_terms = [name for name, pats in self.terms
-                       if any(p.search(text) for p in pats) and not any(p.search(src) for p in pats)]
+                       if any(p.search(text) for p in pats) and not any(p.search(src_terms) for p in pats)]
         if extra_terms:
             ct.terms_ok = False
             res.issues.append(Issue(where, f"tool/skill term(s) not in cited sources: {sorted(set(extra_terms))}"))
@@ -260,8 +279,10 @@ class Verifier:
                   "Rewording, shortening, and merging are fine. Mark supported=false if TEXT adds anything the sources "
                   "do not state: a tool, number, outcome, scale, customer, responsibility, seniority or leadership "
                   "claim, or an intensifier that changes the claim (e.g. 'production', 'enterprise', 'led', 'owned', "
-                  "'architected'). Return one verdict per item, using the item number as index.\n\n"
-                  + "\n\n".join(items))
+                  "'architected'). Return one verdict per item, using the item number as index.\n"
+                  + ("Approved wordings (confirmed by the candidate; using them is supported): "
+                     + "; ".join(self.equiv_notes) + "\n" if self.equiv_notes else "")
+                  + "\n" + "\n\n".join(items))
         resp = llm.generate_json(prompt, Verification, tier=tier,
                                  system="You are a strict fact-checker for resumes. Never invent; judge only support.")
         res.llm_response = resp

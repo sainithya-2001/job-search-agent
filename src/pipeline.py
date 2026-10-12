@@ -4,6 +4,7 @@ Each step returns plain data and does no printing, so the agent can turn the res
 and the CLI can print it however it likes.
 """
 import asyncio
+import re
 import json
 from collections import Counter
 from dataclasses import dataclass, field
@@ -152,7 +153,8 @@ def tailor_estimate(job, store: Store, ctx: TailorContext, llm, cfg: dict) -> fl
     return (cost_usd(model, d_in, out["draft"], pricing) or 0) + (cost_usd(model, 3000, out["verify"], pricing) or 0)
 
 
-def publish(tr, master, verifier, base: Path, report_text: str, pdf: bool) -> tuple[list[str], list[str], int | None]:
+def publish(tr, master, verifier, base: Path, report_text: str, pdf: bool,
+            wording: dict[str, str] | None = None) -> tuple[list[str], list[str], int | None]:
     """Write JSON + HTML (+ one-page PDF) for a verified resume; append any one-page cuts to the report.
     Returns (files written, one-page cuts, PDF page count or None)."""
     from src.render import RenderError, fit_one_page, render_html
@@ -163,16 +165,16 @@ def publish(tr, master, verifier, base: Path, report_text: str, pdf: bool) -> tu
     if pdf:
         try:
             html, pages, cuts = fit_one_page(tr, master, summary, base.with_suffix(".pdf"),
-                                             verifier.optional, set(verifier.required_bullets()))
+                                             verifier.optional, set(verifier.required_bullets()), wording)
             files.append(f"{base.name}.pdf ({pages} page{'s' if pages != 1 else ''})")
             if cuts:
                 report_text += ("\n## One-page fitting (content cut, nothing added)\n\n"
                                 + "\n".join(f"- {c}" for c in cuts) + "\n")
         except RenderError as e:
             files.append(f"PDF failed: {e}")
-            html = render_html(tr, master, summary)
+            html = render_html(tr, master, summary, wording)
     else:
-        html = render_html(tr, master, summary)
+        html = render_html(tr, master, summary, wording)
     base.with_suffix(".json").write_text(json.dumps(tr.model_dump(), indent=2), encoding="utf-8")
     base.with_suffix(".html").write_text(html, encoding="utf-8")
     (base.parent / (base.name + "_verification.md")).write_text(report_text, encoding="utf-8")
@@ -187,10 +189,33 @@ class TailorOutcome:
     cuts: list[str]
 
 
+def job_coverage(store: Store, job, ctx: TailorContext, llm=None, cfg: dict | None = None):
+    """Keyword coverage for a job: cached keywords, or (if llm is given) extract them now.
+    Returns (Coverage or None, extraction LLMResponse or None)."""
+    from src.keywords import cached, get_keywords, match
+
+    kws = cached(store, job["id"])
+    resp = None
+    if kws is None:
+        if llm is None:
+            return None, None
+        kws, resp = get_keywords(store, job, llm, (cfg or {}).get("tailoring", {}).get("keyword_tier", "fast"))
+    return match(kws, ctx.master, ctx.texts, ctx.tech), resp
+
+
+def resume_text(html: str) -> str:
+    import html as _html
+    return _html.unescape(re.sub(r"<[^>]+>", " ", html))
+
+
 def tailor_and_publish(job, store: Store, ctx: TailorContext, llm, cfg: dict, budget_left: float,
                        pdf: bool = True) -> TailorOutcome:
     """Tailor + verify one job; on PASS write the resume files and mark the job 'tailored'.
-    On FAIL write only the verification report (and the failed draft as .failed.json)."""
+    On FAIL write only the verification report (and the failed draft as .failed.json).
+    Before drafting, the posting's ATS keywords are extracted (cached) and matched to master_resume.yaml; matched
+    keywords steer the draft and the skills wording, and coverage is added to the verification report."""
+    from src.keywords import report_section, resume_coverage, resume_section
+    from src.llm import cost_usd
     from src.render import verification_report
     from src.tailor import tailor_job
     from src.verify import Verifier, select_summary
@@ -201,11 +226,30 @@ def tailor_and_publish(job, store: Store, ctx: TailorContext, llm, cfg: dict, bu
     select_summary(ctx.master, fam, title)
     verifier = Verifier(ctx.master, ctx.texts, ctx.tech, cfg, fam, title)
     sc = store.conn.execute("SELECT * FROM scores WHERE job_id=?", (job["id"],)).fetchone()
-    res = tailor_job(job, sc, ctx.master, ctx.source, verifier, llm, cfg, budget_left=budget_left)
+    cov, kw_resp = job_coverage(store, job, ctx, llm, cfg)
+    kw_cost = 0.0
+    if kw_resp:
+        kw_cost = cost_usd(kw_resp.model, kw_resp.input_tokens, kw_resp.output_tokens,
+                           cfg["llm"].get("pricing", {})) or 0.0
+    res = tailor_job(job, sc, ctx.master, ctx.source, verifier, llm, cfg, budget_left=budget_left - kw_cost,
+                     coverage=cov)
+    if kw_resp:
+        res.cost += kw_cost
+        res.calls += 1
+        res.input_tokens += kw_resp.input_tokens
+        res.output_tokens += kw_resp.output_tokens
     base = output_base(job)
     report = verification_report(job, res, res.cost, select_summary(ctx.master, fam, title)["id"])
+    if cov:
+        report += "\n" + report_section(cov)
     if res.status.startswith("PASS"):
-        files, cuts, pages = publish(res.resume, ctx.master, verifier, base, report, pdf)
+        wording = cov.wording() if cov else None
+        files, cuts, pages = publish(res.resume, ctx.master, verifier, base, report, pdf, wording)
+        if cov:
+            html = base.with_suffix(".html").read_text(encoding="utf-8")
+            rep = base.parent / (base.name + "_verification.md")
+            rep.write_text(rep.read_text(encoding="utf-8") + "\n" +
+                           resume_section(resume_coverage(resume_text(html), cov, ctx.master)), encoding="utf-8")
         store.set_status(job["id"], "tailored")
         return TailorOutcome(res, files, pages, cuts)
     (OUT_DIR / (base.name + "_verification.md")).write_text(report, encoding="utf-8")
