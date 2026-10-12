@@ -449,6 +449,7 @@ def plan(cfg: dict, store: Store, llm: LLMProvider) -> str:
          "Plan:",
          f"  1. search_jobs: {search.fetched} fetched from {search.boards} boards ({len(search.errors)} errors), "
          f"{search.kept} pass filters, {len(search.new)} would be new",
+         *[f"     {n}" for n in search.notes if n.startswith("JSearch")],
          f"  2. score_jobs: {len(to_score)} jobs ({in_db} unscored already in DB + "
          f"{len(search.new)} new, top {lim.score_limit} by relevance; scoring budget ${score_cap:.2f})"]
     for i, j in enumerate(to_score, 1):

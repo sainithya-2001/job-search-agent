@@ -46,6 +46,7 @@ class SearchResult:
     hints: dict = field(default_factory=dict)            # job id -> role family hint from the title filter
     relabel: Counter = field(default_factory=Counter)
     saved: bool = True
+    js_requests: int = 0                                  # JSearch API requests sent by this search
 
 
 def run_search(cfg: dict, store: Store, *, save: bool = True) -> SearchResult:
@@ -58,16 +59,26 @@ def run_search(cfg: dict, store: Store, *, save: bool = True) -> SearchResult:
     res.errors = dict(fetched.errors)
 
     js_cfg, js_key = cfg.get("jsearch", {}), jsearch.api_key()
-    if js_cfg.get("enabled") and js_key:
+    if js_cfg.get("enabled") and js_key and not save:
+        # Dry runs never call JSearch: every request counts against a hard monthly quota.
+        b = jsearch.budget(js_cfg, store)
+        res.notes.append(f"JSearch: not called in a dry run (a real run may send up to {b.allowed} request(s); "
+                         f"{b.used_today} used today, {b.used_month}/{js_cfg['monthly_soft_limit']} this month)")
+    elif js_cfg.get("enabled") and js_key:
         async def _js():
             async with httpx.AsyncClient(timeout=30) as client:
-                return await jsearch.fetch(client, js_cfg, js_key)
-        js_jobs, js_dropped, js_errors = asyncio.run(_js())
+                return await jsearch.fetch(client, js_cfg, js_key, store)
+        js_jobs, js_dropped, js_errors, st = asyncio.run(_js())
         fetched.jobs.extend(js_jobs)
-        n_req = len(jsearch.requests_planned(js_cfg))
-        res.notes.append(f"JSearch: {len(js_jobs)} jobs from {n_req} requests ({len(js_cfg['queries'])} queries x "
-                         f"{len(js_cfg.get('locations') or [1])} locations; {js_dropped} dropped as staffing/excluded "
-                         f"employers)")
+        b = st["budget"]
+        pages = ", ".join(f"page {p}: {n}" for p, n in sorted(st["pages"].items())) or "none"
+        res.notes.append(f"JSearch: {len(js_jobs)} jobs from {st['sent']} request(s) ({pages}); "
+                         f"{js_dropped} dropped as staffing/excluded employers")
+        res.notes.append(f"JSearch requests: {b.used_today + st['sent']}/{js_cfg['max_requests_per_day']} today, "
+                         f"{b.used_month + st['sent']}/{js_cfg['monthly_soft_limit']} this month "
+                         f"(hard limit {js_cfg['monthly_hard_limit']})"
+                         + (f"; stopped: {st['stopped']}" if st["stopped"] else ""))
+        res.js_requests = st["sent"]
         res.notes += [f"! {e}" for e in js_errors]
     else:
         res.notes.append("JSearch: skipped (" + ("disabled in config" if not js_cfg.get("enabled")

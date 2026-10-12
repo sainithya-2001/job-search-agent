@@ -101,6 +101,20 @@ CREATE TABLE IF NOT EXISTS apply_queue (
     total            INTEGER NOT NULL,
     queued_at        TEXT NOT NULL
 );
+
+-- Every JSearch API request (free plan: 200/month, hard limit). A row is written BEFORE the request is sent, so a
+-- crash mid-request is still counted; status/results are filled in afterwards.
+CREATE TABLE IF NOT EXISTS jsearch_requests (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    sent_at          TEXT NOT NULL,            -- UTC ISO timestamp
+    query            TEXT NOT NULL,
+    location         TEXT,
+    page             INTEGER NOT NULL,
+    status           INTEGER,                  -- HTTP status (NULL = no response)
+    results          INTEGER,                  -- jobs returned by this page
+    quota_remaining  INTEGER,                  -- RapidAPI x-ratelimit-requests-remaining, when sent
+    quota_limit      INTEGER                   -- RapidAPI x-ratelimit-requests-limit
+);
 """
 
 
@@ -189,6 +203,28 @@ class Store:
 
     def applications(self) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM applications ORDER BY updated_at").fetchall()
+
+    # ---- JSearch request accounting ----
+    def jsearch_used(self, since: str) -> int:
+        """Requests sent at or after `since` (UTC ISO), failed ones included."""
+        return self.conn.execute("SELECT COUNT(*) FROM jsearch_requests WHERE sent_at >= ?", (since,)).fetchone()[0]
+
+    def jsearch_last_quota(self, since: str) -> int | None:
+        """Most recent quota_remaining RapidAPI reported since `since`, if any."""
+        row = self.conn.execute("SELECT quota_remaining FROM jsearch_requests WHERE sent_at >= ? AND "
+                                "quota_remaining IS NOT NULL ORDER BY id DESC LIMIT 1", (since,)).fetchone()
+        return row[0] if row else None
+
+    def jsearch_sent(self, query: str, location: str, page: int, sent_at: str) -> int:
+        with self.conn:
+            return self.conn.execute("INSERT INTO jsearch_requests (sent_at, query, location, page) VALUES (?,?,?,?)",
+                                     (sent_at, query, location, page)).lastrowid
+
+    def jsearch_done(self, row_id: int, status: int | None, results: int | None,
+                     quota_remaining: int | None, quota_limit: int | None) -> None:
+        with self.conn:
+            self.conn.execute("UPDATE jsearch_requests SET status=?, results=?, quota_remaining=?, quota_limit=? "
+                              "WHERE id=?", (status, results, quota_remaining, quota_limit, row_id))
 
     def save_queue(self, row: dict) -> None:
         cols, marks = ", ".join(row), ", ".join("?" for _ in row)

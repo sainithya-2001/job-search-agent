@@ -87,6 +87,7 @@ job-agent/
 - Normalize to the Job model: id, company, title, location, remote, url, description, source, posted_at.
 - posted_at is always an ORIGINAL posting date, never a last-updated date: Greenhouse `first_published` (never `updated_at`), Lever `createdAt`, Ashby `publishedAt` (the only date Ashby exposes). Missing = no date.
 - Apply filters.py (title keywords, exclusion phrases) before saving. Save to SQLite with dedupe.
+- JSearch (optional aggregator; free plan = 200 requests/month, HARD limit): 3 broad OR queries (AI engineer / solutions / forward deployed; data / analytics / business analyst; AI product / technical program manager) x 2 locations (United States, US remote), date_posted=3days, one page per request. Budget (config.yaml `jsearch`): at most 7 requests per UTC day (6 first pages, then page 2+ of queries whose previous page was full, only while budget remains), stop for the calendar month at 160, never exceed 200. Every request is recorded in the jsearch_requests table before it is sent; RapidAPI's own remaining count is also respected. Dry runs never call JSearch.
 - Done when: python main.py search prints a count and the top 10 new jobs.
 
 ### Phase 2 — Score

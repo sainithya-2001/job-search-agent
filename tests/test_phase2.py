@@ -10,6 +10,7 @@ from src.models import RoleFamily, ScoredJob, SponsorshipSignal
 from src.resume import ResumeError, load_master, profile_text
 from src.scorer import estimate, location_rank, score_jobs, select_jobs
 from src.sponsorship import SponsorshipDB, normalize_employer
+from src.store import Store
 
 
 @pytest.fixture(scope="module")
@@ -301,14 +302,14 @@ def test_skills_gap_ignores_urls_company_name_and_departments():
 
 def test_jsearch_parse_and_staffing_filter(cfg):
     from src.sources import jsearch
-    payload = {"data": [
+    payload = {"data": {"cursor": None, "jobs": [
         {"job_id": "a1", "employer_name": "Acme AI", "job_title": "AI Engineer", "job_city": "Atlanta",
          "job_state": "GA", "job_country": "US", "job_is_remote": False, "job_apply_link": "u",
          "job_description": "d", "job_posted_at_datetime_utc": "2026-10-01T00:00:00Z", "job_employment_type": "FULLTIME"},
         {"job_id": "a2", "employer_name": "Best Staffing LLC", "job_title": "AI Engineer", "job_description": "d"},
         {"job_id": "a3", "employer_name": "Boston Consulting Group", "job_title": "AI Consultant",
          "job_is_remote": True, "job_country": "US", "job_description": "d"},
-    ]}
+    ]}}
     jobs, dropped = jsearch.parse(payload, cfg["jsearch"]["exclude_employers"])
     assert dropped == 1 and [j.company for j in jobs] == ["Acme AI", "Boston Consulting Group"]
     assert jobs[0].location == "Atlanta, GA, US" and jobs[0].id == "jsearch:a1"
@@ -324,33 +325,103 @@ def test_jsearch_prefers_direct_ats_apply_link():
     assert jsearch.apply_url({"job_apply_link": "https://x.com/apply"}) == "https://x.com/apply"
 
 
-def test_jsearch_runs_each_query_in_each_location(cfg):
+def test_jsearch_config_fits_the_free_plan(cfg):
     from src.sources import jsearch
     js = cfg["jsearch"]
     pairs = jsearch.requests_planned(js)
-    assert len(pairs) == len(js["queries"]) * 5
-    assert {loc["name"] for _, loc in pairs} == {"Atlanta, GA", "California", "Texas", "US remote", "Anywhere in US"}
-    assert js["date_posted"] == "month"          # covers the 14-day window; the age filter does the rest
+    assert len(pairs) == 6 <= js["max_requests_per_day"] == 7          # 3 broad queries x (US + remote)
+    assert {loc["name"] for _, loc in pairs} == {"United States", "US remote"}
+    assert js["date_posted"] == "3days"
+    assert js["monthly_soft_limit"] == 160 < js["monthly_hard_limit"] == 200
 
 
-def test_jsearch_fetch_sends_location_and_remote_params(cfg):
+def _js_run(js, store, pages_full=(), status=200, headers=None, now=None):
+    """Run jsearch.fetch against a fake API. pages_full: (query_prefix, page) pairs that return a full page."""
     import asyncio
     import httpx
     from src.sources import jsearch
     seen = []
 
     def handler(request):
-        seen.append(dict(request.url.params))
-        return httpx.Response(200, json={"data": []})
+        p = dict(request.url.params)
+        seen.append(p)
+        full = any(p["query"].startswith(q) and int(p["page"]) == pg for q, pg in pages_full)
+        data = [{"job_id": f"{len(seen)}-{i}", "employer_name": "Acme AI", "job_title": "AI Engineer",
+                 "job_description": "d"} for i in range(10 if full else 3)]
+        body = {"data": {"jobs": data, "cursor": f"c{len(seen)}" if full else None}} if status == 200 else {
+            "message": "Endpoint '/search' does not exist"}
+        return httpx.Response(status, json=body, headers=headers or {})
 
-    js = {**cfg["jsearch"], "queries": ["AI Engineer"]}
     async def go():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
-            return await jsearch.fetch(c, js, "k")
-    asyncio.run(go())
-    assert [p["query"] for p in seen] == ["AI Engineer in Atlanta, GA", "AI Engineer in California",
-                                          "AI Engineer in Texas", "AI Engineer", "AI Engineer in United States"]
-    assert seen[3].get("work_from_home") == "true" and "work_from_home" not in seen[0]
+            return await jsearch.fetch(c, js, "k", store, now=now)
+    return asyncio.run(go()), seen
+
+
+def test_jsearch_sends_one_page_per_request_and_records_each(cfg, tmp_path):
+    js = cfg["jsearch"]
+    store = Store(tmp_path / "t.db")
+    (jobs, _, errors, st), seen = _js_run(js, store)
+    assert st["sent"] == 6 and not errors and len(jobs) == 18          # no full pages -> no extra pages
+    assert [p["query"] for p in seen[:2]] == [
+        "AI engineer OR solutions engineer OR forward deployed engineer in United States",
+        "AI engineer OR solutions engineer OR forward deployed engineer"]
+    assert seen[1].get("work_from_home") == "true" and "work_from_home" not in seen[0]
+    assert all(p["num_pages"] == "1" and p["date_posted"] == "3days" for p in seen)
+    rows = store.conn.execute("SELECT status, results FROM jsearch_requests").fetchall()
+    assert len(rows) == 6 and all(r["status"] == 200 and r["results"] == 3 for r in rows)
+
+
+def test_jsearch_extra_page_only_within_daily_budget(cfg, tmp_path):
+    js = cfg["jsearch"]
+    store = Store(tmp_path / "t.db")
+    full = [("AI engineer", 1), ("data analyst", 1), ("AI engineer", 2)]   # 4 pairs would want page 2
+    (_, _, _, st), seen = _js_run(js, store, pages_full=full)
+    assert st["sent"] == 7 and st["stopped"].startswith("budget reached: daily budget")
+    assert [int(p["page"]) for p in seen] == [1] * 6 + [2]            # base pages first, then one extra
+    assert "cursor" not in seen[0] and seen[6]["cursor"] == "c1"      # page 2 continues page 1's cursor
+    # Same day again: nothing left.
+    (_, _, _, st2), seen2 = _js_run(js, store)
+    assert st2["sent"] == 0 and seen2 == []
+
+
+def test_jsearch_monthly_soft_limit_and_provider_count(cfg, tmp_path):
+    from datetime import datetime, timezone
+    from src.sources import jsearch
+    js = cfg["jsearch"]
+    store = Store(tmp_path / "t.db")
+    now = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+    for d in range(1, 20):            # 158 requests earlier this month, none today
+        for _ in range(8 if d < 19 else 14):
+            store.jsearch_sent("q", "US", 1, datetime(2026, 10, d, 9, tzinfo=timezone.utc).isoformat())
+    assert store.jsearch_used("2026-10-01T00:00:00+00:00") == 158
+    b = jsearch.budget(js, store, now)
+    assert b.allowed == 2 and "monthly limit" in b.reason
+    (_, _, _, st), _ = _js_run(js, store, now=now)
+    assert st["sent"] == 2 and jsearch.budget(js, store, now).allowed == 0
+    # Next month starts fresh.
+    assert jsearch.budget(js, store, datetime(2026, 11, 2, tzinfo=timezone.utc)).allowed == 7
+
+    # RapidAPI's own count wins when it is lower (e.g. requests made in the playground).
+    store2 = Store(tmp_path / "t2.db")
+    rid = store2.jsearch_sent("q", "US", 1, now.isoformat())
+    store2.jsearch_done(rid, 200, 3, 43, 200)                  # provider: 157 used
+    b = jsearch.budget(js, store2, now)
+    assert b.allowed == 3 and "RapidAPI reports 43" in b.reason
+
+
+@pytest.mark.parametrize("status", [404, 429, 403])
+def test_jsearch_stops_after_first_client_error(cfg, tmp_path, status):
+    store = Store(tmp_path / "t.db")
+    (jobs, _, errors, st), seen = _js_run(cfg["jsearch"], store, status=status)
+    assert len(seen) == 1 and st["sent"] == 1 and f"HTTP {status}" in errors[0] and jobs == []
+    assert store.conn.execute("SELECT status FROM jsearch_requests").fetchone()[0] == status
+
+
+def test_jsearch_unexpected_shape_is_an_error_not_zero_jobs():
+    from src.sources import jsearch
+    with pytest.raises(jsearch.JSearchFormatError):
+        jsearch.jobs_of({"data": []})          # the retired /search shape
 
 
 def test_restricted_remote_ranks_after_preferred_and_unrestricted_remote(cfg):

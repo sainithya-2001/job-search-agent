@@ -280,24 +280,21 @@ companies:
 jsearch:
   # Aggregator source (RapidAPI). Runs only when enabled AND JSEARCH_API_KEY is set in .env.
   enabled: true
-  date_posted: month         # JSearch buckets: all | today | 3days | week | month. "month" covers 14 days; the
-                             # 14-day filters.max_posting_age_days then applies like every other source.
-  pages_per_query: 1         # ~10 jobs per page; each query x location = 1 API request (8 x 5 = 40 per search)
-  locations:                 # every query runs once per location
-    - {name: "Atlanta, GA", query: "in Atlanta, GA"}
-    - {name: California,   query: "in California"}
-    - {name: Texas,        query: "in Texas"}
-    - {name: US remote,    query: "",  remote: true}
-    - {name: Anywhere in US, query: "in United States"}   # the rest of the US (relocation anywhere is fine)
-  queries:
-    - AI Engineer
-    - Applied AI Engineer
-    - Forward Deployed Engineer
-    - AI Solutions Engineer
-    - AI Consultant
-    - AI Evaluation
-    - Analytics Engineer
-    - Data Analyst AI
+  # Free plan: 200 requests/month, HARD limit. Every request is recorded in jobs.db (jsearch_requests) before it is
+  # sent; dry runs never call JSearch. One request = one result page (~10 jobs).
+  max_requests_per_day: 7    # per UTC day, all runs combined (7 x ~22 weekdays ~ 154)
+  monthly_soft_limit: 160    # JSearch stops for the calendar month here
+  monthly_hard_limit: 200    # the plan's quota; never exceeded (RapidAPI's own remaining count is checked too)
+  date_posted: 3days         # JSearch buckets: all | today | 3days | week | month. Daily runs keep results fresh.
+  max_pages_per_query: 3     # page 2+ only if the budget allows and the previous page came back full
+  full_page_size: 10
+  locations:                 # first pages run in this order: query 1 in each location, then query 2, ...
+    - {name: United States, query: "in United States"}
+    - {name: US remote,     query: "", remote: true}
+  queries:                   # broad OR queries, highest-priority families first
+    - AI engineer OR solutions engineer OR forward deployed engineer
+    - data analyst OR analytics engineer OR business analyst
+    - AI product manager OR technical program manager
   # Employers dropped before anything else (staffing agencies, body shops, marketplaces).
   # No generic "consulting" pattern: it would drop BCG (BCG X is a target). IT-services firms are listed by name.
   exclude_employers: ['staffing', 'recruit', '\btalent\b', 'infotech', '\bsolutions,? (inc|llc)\b',
