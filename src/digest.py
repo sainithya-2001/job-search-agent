@@ -89,11 +89,13 @@ def tier_a(store: Store, cfg: dict, day: date) -> tuple[list[dict], int]:
 
 def tier_b(store: Store, cfg: dict, master: dict, now: datetime | None = None) -> tuple[list[dict], int]:
     """Next ranked untailored jobs at or above digest.tier_b_min_score, not applied/skipped, and not older than
-    filters.max_posting_age_days. -> (rows, number hidden as too old)"""
+    filters.max_posting_age_days. JSearch jobs without a direct employer link never appear; JSearch jobs whose
+    link check failed appear as "unverified". -> (rows, number hidden as too old)"""
     apps = {r["job_id"]: r["status"] for r in store.applications()}
     d = cfg["digest"]
     rows = [dict(r) for r in store.scored_rows()
-            if r["status"] == "scored" and r["fit_score"] >= d["tier_b_min_score"] and apps.get(r["id"]) not in CLOSED]
+            if r["status"] in ("scored", "unverified") and r["fit_score"] >= d["tier_b_min_score"]
+            and apps.get(r["id"]) not in CLOSED and apply_route(r) != FIND_POSTING]
     rows, hidden = hide_stale(rows, cfg, now, apps)
     out = []
     for r in rank_results(rows, cfg)[: d["tier_b_max"]]:
@@ -103,8 +105,8 @@ def tier_b(store: Store, cfg: dict, master: dict, now: datetime | None = None) -
             r["held_by"] = None
         except ValueError:
             r["summary"], r["held_by"] = f"none approved for {family}", "no approved summary"
-        if apply_route(r) == FIND_POSTING:
-            r["held_by"] = FIND_POSTING
+        if r["status"] == "unverified":
+            r["held_by"] = r["link_check"] or "unverified"          # e.g. "unverified: HTTP 404"
         elif r["held_by"] is None:
             need = tailor_threshold(r, cfg)
             r["held_by"] = f"below {need}" if r["fit_score"] < need else "eligible: next run"

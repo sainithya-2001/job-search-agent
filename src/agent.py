@@ -33,7 +33,9 @@ SYSTEM = """You run Nithya's daily job-search cycle by calling tools. Do exactly
 3. For each job in score_jobs' tailor_candidates (already filtered to fit_score >= the minimum and in the
    required order), call tailor_resume in exactly that order, at most {max_tailor} times in total.
 4. After each tailor_resume, call log_application for that job: status "to_review" if its status starts with PASS,
-   otherwise "skipped" with a short note on why.
+   otherwise "skipped" with a short note on why. Exception: status "skipped_unverified" means the job's employer
+   link failed its check and nothing was tailored; do not log it, just continue with the next candidate (it does
+   not count toward the {max_tailor}).
 5. Then reply with a 2-4 sentence summary and no tool call. That ends the run.
 Never call search_jobs or score_jobs twice. You cannot apply to jobs; Nithya reviews and applies herself.
 If a tool returns an error, read it: retry once only if the error suggests a retry could work, otherwise move on.
@@ -248,6 +250,16 @@ class Toolbox:
         if nxt and nxt[0]["job_id"] != job_id:
             raise ToolError(f"refused: tailor candidates in order; next is {nxt[0]['job_id']} "
                             f"({nxt[0]['company']}, fit {nxt[0]['fit_score']}, sponsorship {nxt[0]['sponsorship']})")
+        # JSearch jobs: confirm the employer link still loads and shows this title (free; no LLM). A failure is a
+        # normal skip, not a tool error, so it never counts toward the consecutive-failure stop.
+        if job["source"] == "jsearch":
+            from src.linkcheck import verify_posting
+            check = verify_posting(job["url"], job["title"], self.cfg.get("jsearch", {}))
+            self.store.save_link_check(job_id, check.ok, check.note)
+            if not check.ok:
+                return ToolOutput({"status": "skipped_unverified", "job_id": job_id, "note": check.note,
+                                   "next_candidates": self.tailor_candidates(
+                                       exclude={t["job_id"] for t in state.tailored})[:3]})
         # Budget: tailor_job checks its budget before each attempt, so one attempt can run past it. Hold back a
         # projected attempt (2x the estimate) so even that last attempt stays under the run cap.
         attempt = 2 * tailor_estimate(job, self.store, self.ctx, self.llm, self.cfg)

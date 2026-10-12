@@ -14,7 +14,7 @@ $logDir = Join-Path $root 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir ('scheduled_{0:yyyyMMdd_HHmmss}.log' -f (Get-Date))
 $python = Join-Path $root '.venv\Scripts\python.exe'
-$runArgs = if ($DryRun) { 'main.py run --dry-run' } else { 'main.py run' }
+$runArgs = if ($DryRun) { "-u main.py run --dry-run" } else { "-u main.py run" }   # -u: write to the log as it runs
 
 "[$(Get-Date -Format s)] start: $python $runArgs" | Out-File -FilePath $log -Encoding utf8
 # cmd.exe does the redirect so Python's stderr lands in the log as plain text (Windows PowerShell 5.1 would

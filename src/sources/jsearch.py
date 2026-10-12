@@ -63,48 +63,72 @@ def is_excluded_publisher(raw: dict, cfg: dict) -> bool:
     return _host_in(host_of(raw.get("job_apply_link")), cfg.get("aggregator_hosts", []))
 
 
-def direct_link(raw: dict, cfg: dict) -> tuple[str | None, str]:
-    """The employer's own apply link, if JSearch gives one. -> (link or None, how it was recognized)
+# Words that don't identify an employer, ignored when checking that an ATS board belongs to it.
+GENERIC_NAME_WORDS = {"inc", "llc", "ltd", "corp", "corporation", "co", "company", "the", "group", "holdings",
+                      "technologies", "technology", "tech", "solutions", "systems", "labs", "lab", "ai", "software",
+                      "services", "international", "global", "usa", "us", "of", "and", "partners", "hq"}
 
-    In order: a Greenhouse/Lever/Ashby link (review mode can pre-fill those); another employer ATS
-    (config jsearch.employer_ats_hosts, e.g. Workday); a link on the employer's own website domain; any option
-    JSearch flags is_direct, unless it is on a job board (LinkedIn, Indeed, aggregators: never "direct").
+
+def employer_keys(name: str) -> list[str]:
+    """'Extreme Networks, Inc.' -> ['extremenetworks', 'extreme']: the whole name, then its first distinctive word."""
+    words = [w for w in re.findall(r"[a-z0-9]+", (name or "").lower()) if w not in GENERIC_NAME_WORDS]
+    keys = ["".join(words)] + [w for w in words[:1] if len(w) >= 4]
+    return [k for k in dict.fromkeys(keys) if len(k) >= 3]
+
+
+def under_employer(url: str, employer: str) -> bool:
+    """The employer's name appears in the board's host, path, or query (acme.wd5.myworkdayjobs.com,
+    job-boards.greenhouse.io/acme/..., jobs.smartrecruiters.com/Acme/...)."""
+    u = urlparse(url or "")
+    where = _norm(f"{u.hostname or ''}{u.path}{u.query}")
+    return any(k in where for k in employer_keys(employer))
+
+
+def direct_link(raw: dict, cfg: dict) -> tuple[str | None, str]:
+    """The employer's own apply link, or None. -> (link, how it was recognized)
+
+    Only two kinds count (strict source rule):
+      1. an ATS board under the employer's name: Greenhouse/Lever/Ashby (review mode can pre-fill these) or another
+         ATS in config jsearch.employer_ats_hosts (Workday, SmartRecruiters, iCIMS, ...);
+      2. a page on the employer's own website (same domain as JSearch's employer_website).
+    Job boards, aggregators, and JSearch's is_direct flag alone never count.
     """
-    opts = [{"apply_link": raw.get("job_apply_link"), "publisher": raw.get("job_publisher"),
-             "is_direct": raw.get("job_apply_is_direct")}] + list(raw.get("apply_options") or [])
-    links = [(o.get("apply_link") or "", bool(o.get("is_direct"))) for o in opts if o.get("apply_link")]
+    employer = raw.get("employer_name") or ""
+    opts = [raw.get("job_apply_link")] + [o.get("apply_link") for o in raw.get("apply_options") or []]
+    links = [l for l in dict.fromkeys(opts) if l]
     boards = list(cfg.get("aggregator_hosts", [])) + list(cfg.get("job_board_hosts", []))
-    for link, _ in links:
-        if _host_in(host_of(link), ATS_HOSTS):
-            return link, "greenhouse/lever/ashby"
-    for link, _ in links:
-        if _host_in(host_of(link), cfg.get("employer_ats_hosts", [])):
-            return link, f"employer ATS ({host_of(link)})"
+    for hosts, how in ((ATS_HOSTS, "employer board (greenhouse/lever/ashby)"),
+                       (cfg.get("employer_ats_hosts", []), "employer board ({host})")):
+        for link in links:
+            host = host_of(link)
+            if _host_in(host, hosts) and under_employer(link, employer):
+                return link, how.format(host=host)
     site = host_of(raw.get("employer_website"))
-    if site and not _host_in(site, boards):
+    if site and not _host_in(site, boards) and not _host_in(site, cfg.get("employer_ats_hosts", [])):
         root = ".".join(site.split(".")[-2:])
-        for link, _ in links:
+        for link in links:
             if _host_in(host_of(link), [root]):
-                return link, "employer website"
-    for link, direct in links:
-        if direct and not _host_in(host_of(link), boards):
-            return link, f"is_direct ({host_of(link)})"
+                return link, f"employer careers site ({host_of(link)})"
     return None, "no direct employer link"
 
 
-def classify_stored_url(url: str | None, cfg: dict) -> tuple[bool, str]:
-    """For JSearch rows saved before direct links were tracked: judge the saved url alone (its other apply
-    options weren't kept). A job-board/aggregator host = not direct."""
+def classify_stored_url(url: str | None, employer: str, cfg: dict) -> tuple[bool, str]:
+    """Same strict rule for an already-saved job, judged from its saved url alone (its other apply options
+    weren't kept): an ATS board under the employer's name, or a non-board site carrying the employer's name."""
     host = host_of(url)
-    if _host_in(host, ATS_HOSTS):
-        return True, "greenhouse/lever/ashby"
-    if not host or _host_in(host, list(cfg.get("aggregator_hosts", [])) + list(cfg.get("job_board_hosts", []))):
-        return False, f"no direct employer link (saved link: {host or 'none'})"
-    return True, f"employer link (saved link: {host})"
+    boards = list(cfg.get("aggregator_hosts", [])) + list(cfg.get("job_board_hosts", []))
+    if _host_in(host, list(ATS_HOSTS) + list(cfg.get("employer_ats_hosts", []))):
+        if under_employer(url, employer):
+            return True, f"employer board ({host})"
+        return False, f"no direct employer link (ATS board not under the employer's name: {host})"
+    if host and not _host_in(host, boards) and any(k in _norm(host) for k in employer_keys(employer)):
+        return True, f"employer careers site ({host})"
+    return False, f"no direct employer link (saved link: {host or 'none'})"
 
 
 def parse(payload: dict, cfg: dict) -> tuple[list[Job], Counter]:
-    """-> (jobs, dropped counts: 'staffing/excluded employer', 'repost/aggregator site')"""
+    """Only jobs with the employer's own apply link are returned.
+    -> (jobs, dropped counts: 'staffing/excluded employer', 'repost/aggregator site', 'no direct employer link')"""
     patterns = [re.compile(p, re.I) for p in cfg.get("exclude_employers") or []]
     jobs, dropped = [], Counter()
     for raw in jobs_of(payload):
@@ -120,20 +144,22 @@ def parse(payload: dict, cfg: dict) -> tuple[list[Job], Counter]:
         if remote and "remote" not in location.lower():
             location = f"Remote - {location}" if location else "Remote"
         link, how = direct_link(raw, cfg)
+        if link is None:              # strict source rule: never saved, never shown
+            dropped["no direct employer link"] += 1
+            continue
         jobs.append(Job(
             id=f"jsearch:{raw['job_id']}",
             company=employer,
             title=(raw.get("job_title") or "").strip(),
             location=location,
             remote=remote,
-            # The employer's link when there is one; otherwise the publisher's, kept only for reference.
-            url=link or raw.get("job_apply_link") or "",
+            url=link,
             description=raw.get("job_description") or "",
             source="jsearch",
             # When the aggregator says the job was posted (it can't tell a re-post from a new post).
             posted_at=parse_datetime(raw.get("job_posted_at_datetime_utc")),
             employment_type=raw.get("job_employment_type"),
-            apply_direct=link is not None,
+            apply_direct=True,
             apply_via=how,
         ))
     return jobs, dropped

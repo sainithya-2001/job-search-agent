@@ -115,18 +115,29 @@ def recheck_existing(cfg: dict, store: Store, jf: JobFilter | None = None) -> Co
     jf = jf or job_filter(cfg)
     configured = {c["name"] for c in cfg["companies"]}
     relabel = Counter()
+    # Strict source rule for JSearch jobs already saved: no direct employer link -> excluded (not shown anywhere).
+    # Tailored jobs and jobs in the review queue / applied are never touched.
     from src.sources.jsearch import classify_stored_url
-    for row in store.conn.execute("SELECT id, url FROM jobs WHERE source='jsearch' AND apply_direct IS NULL").fetchall():
-        direct, how = classify_stored_url(row["url"], cfg.get("jsearch", {}))
+    for row in store.conn.execute("SELECT id, url, company, status FROM jobs WHERE source='jsearch' AND status IN "
+                                  "('new', 'scored') AND (apply_direct IS NULL OR apply_direct=1)").fetchall():
+        if store.application(row["id"]):
+            continue
+        direct, how = classify_stored_url(row["url"], row["company"], cfg.get("jsearch", {}))
         with store.conn:
             store.conn.execute("UPDATE jobs SET apply_direct=?, apply_via=? WHERE id=?", (int(direct), how, row["id"]))
-        relabel["jsearch link classified"] += 1
+        relabel["jsearch link re-checked"] += 1
+    for row in store.conn.execute("SELECT id FROM jobs WHERE source='jsearch' AND status IN ('new', 'scored') "
+                                  "AND apply_direct=0").fetchall():
+        if not store.application(row["id"]):
+            store.set_status(row["id"], "excluded"); relabel["jsearch excluded: no direct employer link"] += 1
     for row in store.jobs_by_status("new"):
         if row["source"] != "jsearch" and row["company"] not in configured:
             store.set_status(row["id"], "dropped_company"); relabel["dropped_company"] += 1
         elif not jf.check(job_from_row(row)).keep:
             store.set_status(row["id"], "excluded"); relabel["excluded"] += 1
     for row in store.jobs_by_status("excluded"):
+        if row["source"] == "jsearch" and not row["apply_direct"]:
+            continue                  # excluded by the strict source rule, not by the filters
         if (row["source"] == "jsearch" or row["company"] in configured) and jf.check(job_from_row(row)).keep:
             store.set_status(row["id"], "new"); relabel["restored (now passes filters)"] += 1
     return relabel

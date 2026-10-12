@@ -300,7 +300,7 @@ def test_skills_gap_ignores_urls_company_name_and_departments():
 
 # --- JSearch ----------------------------------------------------------------------------
 
-def test_jsearch_parse_and_staffing_filter(cfg):
+def test_jsearch_parse_keeps_only_direct_employer_links(cfg):
     from src.sources import jsearch
     payload = {"data": {"cursor": None, "jobs": [
         {"job_id": "a1", "employer_name": "Acme AI", "job_title": "AI Engineer", "job_city": "Atlanta",
@@ -314,34 +314,44 @@ def test_jsearch_parse_and_staffing_filter(cfg):
         {"job_id": "a4", "employer_name": "Enduring Ventures", "job_title": "AI FDE", "job_description": "d",
          "job_publisher": "Talent.com", "job_apply_link": "https://www.talent.com/view?id=1"},
         {"job_id": "a5", "employer_name": "Jobleads-US", "job_title": "AI FDE", "job_description": "d"},
+        {"job_id": "a6", "employer_name": "Beta Labs", "job_title": "AI Engineer", "job_is_remote": True,
+         "job_country": "US", "job_description": "d", "job_apply_link": "https://www.indeed.com/viewjob?jk=6",
+         "apply_options": [{"apply_link": "https://betalabs.wd1.myworkdayjobs.com/External/job/6"}]},
     ]}}
     jobs, dropped = jsearch.parse(payload, cfg["jsearch"])
-    assert dropped == {"staffing/excluded employer": 2, "repost/aggregator site": 1}
-    assert [j.company for j in jobs] == ["Acme AI", "Boston Consulting Group"]
+    assert dropped == {"staffing/excluded employer": 2, "repost/aggregator site": 1, "no direct employer link": 1}
+    assert [j.company for j in jobs] == ["Acme AI", "Beta Labs"]
     assert jobs[0].location == "Atlanta, GA, US" and jobs[0].id == "jsearch:a1"
-    assert jobs[0].apply_direct and jobs[0].apply_via == "employer website"
-    assert jobs[1].location == "Remote - US" and jobs[1].remote
-    assert jobs[1].apply_direct is False and jobs[1].url == "https://www.linkedin.com/jobs/view/3"
+    assert jobs[0].apply_via == "employer careers site (acme.ai)" and jobs[0].url == "https://acme.ai/jobs/1"
+    assert jobs[1].url == "https://betalabs.wd1.myworkdayjobs.com/External/job/6" and jobs[1].remote
+    assert all(j.apply_direct for j in jobs)
 
 
 @pytest.mark.parametrize("raw, link, how", [
-    # Greenhouse/Lever/Ashby first, even when listed after a job board
-    ({"job_apply_link": "https://www.linkedin.com/jobs/view/1",
+    # Greenhouse/Lever/Ashby board under the employer's name, even when listed after a job board
+    ({"employer_name": "Acme", "job_apply_link": "https://www.linkedin.com/jobs/view/1",
       "apply_options": [{"publisher": "LinkedIn", "apply_link": "https://www.linkedin.com/jobs/view/1"},
                         {"publisher": "Acme", "apply_link": "https://job-boards.greenhouse.io/acme/jobs/9"}]},
-     "https://job-boards.greenhouse.io/acme/jobs/9", "greenhouse/lever/ashby"),
-    # another employer ATS
-    ({"job_apply_link": "https://www.indeed.com/viewjob?jk=1",
-      "apply_options": [{"apply_link": "https://acme.wd1.myworkdayjobs.com/External/job/9"}]},
-     "https://acme.wd1.myworkdayjobs.com/External/job/9", "employer ATS (acme.wd1.myworkdayjobs.com)"),
-    # is_direct on a non-board host
-    ({"job_apply_link": "https://www.glassdoor.com/job/1",
-      "apply_options": [{"apply_link": "https://careers.acme.ai/9", "is_direct": True}]},
-     "https://careers.acme.ai/9", "is_direct (careers.acme.ai)"),
-    # is_direct on a job board does not count
-    ({"job_apply_link": "https://www.linkedin.com/jobs/view/1", "job_apply_is_direct": True}, None,
-     "no direct employer link"),
-    ({"job_apply_link": "https://www.dice.com/job-detail/1"}, None, "no direct employer link"),
+     "https://job-boards.greenhouse.io/acme/jobs/9", "employer board (greenhouse/lever/ashby)"),
+    # another ATS under the employer's name
+    ({"employer_name": "Extreme Networks, Inc.", "job_apply_link": "https://www.indeed.com/viewjob?jk=1",
+      "apply_options": [{"apply_link": "https://extremenetworks.wd5.myworkdayjobs.com/External/job/9"}]},
+     "https://extremenetworks.wd5.myworkdayjobs.com/External/job/9",
+     "employer board (extremenetworks.wd5.myworkdayjobs.com)"),
+    ({"employer_name": "Acme", "apply_options": [{"apply_link": "https://jobs.smartrecruiters.com/Acme/123-ai"}]},
+     "https://jobs.smartrecruiters.com/Acme/123-ai", "employer board (jobs.smartrecruiters.com)"),
+    # an ATS board under SOMEONE ELSE's name (e.g. a staffing firm reposting) does not count
+    ({"employer_name": "Acme", "apply_options": [{"apply_link": "https://job-boards.greenhouse.io/talentco/jobs/9"}]},
+     None, "no direct employer link"),
+    # the employer's own careers site
+    ({"employer_name": "Acme", "employer_website": "https://acme.ai",
+      "apply_options": [{"apply_link": "https://careers.acme.ai/9"}]},
+     "https://careers.acme.ai/9", "employer careers site (careers.acme.ai)"),
+    # is_direct alone no longer counts
+    ({"employer_name": "Acme", "job_apply_link": "https://www.glassdoor.com/job/1",
+      "apply_options": [{"apply_link": "https://apply.someportal.com/9", "is_direct": True}]},
+     None, "no direct employer link"),
+    ({"employer_name": "Acme", "job_apply_link": "https://www.dice.com/job-detail/1"}, None, "no direct employer link"),
 ])
 def test_jsearch_direct_employer_link(cfg, raw, link, how):
     from src.sources import jsearch
@@ -358,10 +368,12 @@ def test_jsearch_request_excludes_aggregator_publishers(cfg, tmp_path):
 def test_stored_jsearch_urls_are_classified(cfg):
     from src.sources.jsearch import classify_stored_url
     js = cfg["jsearch"]
-    assert classify_stored_url("https://www.talent.com/view?id=1", js)[0] is False
-    assert classify_stored_url("https://bebee.com/us/jobs/x", js)[0] is False
-    assert classify_stored_url("https://jobs.ashbyhq.com/acme/1", js) == (True, "greenhouse/lever/ashby")
-    assert classify_stored_url("https://careers.acme.ai/1", js)[0] is True
+    assert classify_stored_url("https://www.talent.com/view?id=1", "Enduring Ventures", js)[0] is False
+    assert classify_stored_url("https://bebee.com/us/jobs/x", "Full Stack LLC", js)[0] is False
+    assert classify_stored_url("https://jobs.ashbyhq.com/acme/1", "Acme", js) == (True, "employer board (jobs.ashbyhq.com)")
+    assert classify_stored_url("https://jobs.ashbyhq.com/other/1", "Acme", js)[0] is False
+    assert classify_stored_url("https://careers.acme.ai/1", "Acme", js)[0] is True
+    assert classify_stored_url("https://careers.someoneelse.com/1", "Acme", js)[0] is False
 
 
 def test_jsearch_config_fits_the_free_plan(cfg):
@@ -386,6 +398,7 @@ def _js_run(js, store, pages_full=(), status=200, headers=None, now=None):
         seen.append(p)
         full = any(p["query"].startswith(q) and int(p["page"]) == pg for q, pg in pages_full)
         data = [{"job_id": f"{len(seen)}-{i}", "employer_name": "Acme AI", "job_title": "AI Engineer",
+                 "job_apply_link": f"https://job-boards.greenhouse.io/acmeai/jobs/{len(seen)}{i}",
                  "job_description": "d"} for i in range(10 if full else 3)]
         body = {"data": {"jobs": data, "cursor": f"c{len(seen)}" if full else None}} if status == 200 else {
             "message": "Endpoint '/search' does not exist"}

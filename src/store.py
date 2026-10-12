@@ -156,6 +156,10 @@ class Store:
             with self.conn:     # JSearch: 1 = url is the employer's own link, 0 = only a job-board link
                 self.conn.execute("ALTER TABLE jobs ADD COLUMN apply_direct INTEGER")
                 self.conn.execute("ALTER TABLE jobs ADD COLUMN apply_via TEXT")
+        if "link_check" not in job_cols:
+            with self.conn:     # JSearch: result of the pre-tailoring employer-link check (linkcheck.py)
+                self.conn.execute("ALTER TABLE jobs ADD COLUMN link_check TEXT")
+                self.conn.execute("ALTER TABLE jobs ADD COLUMN link_checked_at TEXT")
 
     def jobs_by_status(self, status: str) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM jobs WHERE status=?", (status,)).fetchall()
@@ -247,6 +251,13 @@ class Store:
         if status:
             return self.conn.execute("SELECT COUNT(*) FROM jobs WHERE status=?", (status,)).fetchone()[0]
         return self.conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+
+    def save_link_check(self, job_id: str, ok: bool, note: str) -> None:
+        """ok=False also sets status 'unverified': skipped, never tailored."""
+        with self.conn:
+            self.conn.execute("UPDATE jobs SET link_check=?, link_checked_at=?" + ("" if ok else ", status='unverified'")
+                              + " WHERE id=?", (("verified: " if ok else "unverified: ") + note,
+                                                datetime.now(timezone.utc).isoformat(), job_id))
 
     def mark_tailored(self, job_id: str, when: str | None = None) -> None:
         with self.conn:

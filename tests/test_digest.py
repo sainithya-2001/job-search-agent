@@ -144,19 +144,38 @@ def add_jsearch(store, i, fit, direct, url, posted_days=2, status="scored"):
         store.mark_tailored(j.id, NOW.isoformat())
 
 
-def test_jsearch_without_direct_link_is_never_tailored_and_says_find_posting(store, cfg):
+FDE_MASTER = {"approved_summaries": [{"id": "sum_ai", "text": "x", "use_for": {"role_families": ["forward_deployed"]}}]}
+
+
+def test_jsearch_without_direct_link_is_never_tailored_or_shown(store, cfg):
     from src.agent import Toolbox
     add_jsearch(store, 1, 80, False, "https://www.talent.com/view?id=1")
     add_jsearch(store, 2, 70, True, "https://acme.wd5.myworkdayjobs.com/en-US/careers/job/9")
     add_jsearch(store, 3, 72, True, "https://job-boards.greenhouse.io/acme/jobs/3")
     tb = Toolbox(cfg, store, llm=None)
-    tb._master = {"approved_summaries": [{"id": "sum_ai", "text": "x",
-                                          "use_for": {"role_families": ["forward_deployed"]}}]}
+    tb._master = FDE_MASTER
     assert [c["job_id"] for c in tb.tailor_candidates()] == ["jsearch:3", "jsearch:2"]
-    rows, _ = tier_b(store, cfg, tb._master, NOW)
-    by = {r["id"]: r for r in rows}
-    assert by["jsearch:1"]["held_by"] == "find employer posting"
-    assert by["jsearch:2"]["held_by"] == "eligible: next run"
+    rows, _ = tier_b(store, cfg, FDE_MASTER, NOW)
+    assert [r["id"] for r in rows] == ["jsearch:3", "jsearch:2"]
+
+
+def test_unverified_link_is_skipped_not_failed_and_listed(store, cfg, monkeypatch):
+    import src.linkcheck as lc
+    from src.agent import Limits, RunState, Toolbox
+    from src.linkcheck import LinkCheck
+    add_jsearch(store, 3, 72, True, "https://job-boards.greenhouse.io/acme/jobs/3")
+    add_jsearch(store, 2, 70, True, "https://acme.wd5.myworkdayjobs.com/en-US/careers/job/9")
+    monkeypatch.setattr(lc, "verify_posting", lambda url, title, cfg: LinkCheck(False, "employer link returned HTTP 404"))
+    tb = Toolbox(cfg, store, llm=None)
+    tb._master = FDE_MASTER
+    state = RunState(Limits.from_cfg(cfg))
+    out = tb.tailor_resume(state, "jsearch:3")              # no LLM: the check fails before any paid step
+    assert out.result["status"] == "skipped_unverified" and out.cost == 0 and state.tailored == []
+    assert out.result["next_candidates"][0]["job_id"] == "jsearch:2"
+    row = store.conn.execute("SELECT status, link_check FROM jobs WHERE id='jsearch:3'").fetchone()
+    assert row["status"] == "unverified" and row["link_check"] == "unverified: employer link returned HTTP 404"
+    by = {r["id"]: r for r in tier_b(store, cfg, FDE_MASTER, NOW)[0]}
+    assert by["jsearch:3"]["held_by"] == "unverified: employer link returned HTTP 404"
 
 
 def test_tier_a_marks_non_prefillable_employer_links(store, cfg):
@@ -166,3 +185,30 @@ def test_tier_a_marks_non_prefillable_employer_links(store, cfg):
     tier_a_md = md.split("## Tier B")[0]
     assert "apply manually on employer site" in tier_a_md.split("JS2")[1].splitlines()[0]
     assert "not queued yet" in tier_a_md.split("JS3")[1].splitlines()[0]
+
+
+# ---- link check (no network: httpx.get is faked; the rendered fallback is turned off) ----------------------------
+def _fake_get(status=200, html="", final="https://careers.acme.ai/jobs/9"):
+    import httpx
+
+    def get(url, **kw):
+        return httpx.Response(status, text=html, request=httpx.Request("GET", final))
+    return get
+
+
+@pytest.mark.parametrize("status, html, final, ok, note", [
+    (200, "<h1>Senior Forward Deployed Engineer</h1><p>Apply</p>", "https://careers.acme.ai/jobs/9", True,
+     "loads and shows the same title"),
+    (404, "not found", "https://careers.acme.ai/jobs/9", False, "employer link returned HTTP 404"),
+    (200, "<h1>Senior Forward Deployed Engineer</h1>", "https://www.linkedin.com/jobs/view/9", False,
+     "employer link redirects to a job board (linkedin.com)"),
+    (200, "<h1>Data Analyst</h1><script>Senior Forward Deployed Engineer</script>", "https://careers.acme.ai/jobs/9",
+     False, "page loads but the title isn't in its HTML"),
+])
+def test_verify_posting(cfg, monkeypatch, status, html, final, ok, note):
+    import httpx
+    from src.linkcheck import verify_posting
+    monkeypatch.setattr(httpx, "get", _fake_get(status, html, final))
+    r = verify_posting("https://careers.acme.ai/jobs/9", "Senior Forward Deployed Engineer (10569)", cfg["jsearch"],
+                       render=False)
+    assert (r.ok, r.note) == (ok, note)
