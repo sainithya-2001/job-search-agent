@@ -306,3 +306,12 @@ def test_remote_restricted_elsewhere(jf, loc, desc, restricted):
                                    "Senior Program Manager", "Program Manager, Events", "Marketing Program Manager"])
 def test_generic_program_managers_excluded(jf, title):
     assert not jf.check(make_job(title=title)).keep
+
+
+@pytest.mark.parametrize("title,keep", [
+    ("Solutions Architect, EMEA", False), ("AI Engineer (APAC)", False), ("Forward Deployed Engineer - LATAM", False),
+    ("Applied AI Engineer, EU", False), ("Solutions Engineer UK", False),
+    ("AI Engineer, Europe-adjacent Neural Systems", True),            # case-sensitive: no false hits on words
+])
+def test_region_titles_excluded(jf, title, keep):
+    assert jf.check(make_job(title=title)).keep is keep

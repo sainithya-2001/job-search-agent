@@ -6,7 +6,8 @@ turn but can never overspend, loop forever, tailor a weak match, or apply anywhe
     paid step is pre-checked against a projected cost before it starts
   - at most agent.max_tool_calls tool calls per run
   - a tool that fails agent.max_consecutive_failures times in a row stops the run
-  - tailor_resume refuses jobs below agent.tailor_min_score, already-tailored jobs, and more than
+  - tailor_resume refuses jobs below the tailoring threshold (agent.tailor_min_score 65, or
+    agent.tailor_min_score_fresh 58 for jobs posted 0-3 days ago), already-tailored jobs, and more than
     agent.max_tailor_per_run per run
   - there is no apply tool; log_application cannot write status "applied"
 Every model turn and tool call is logged (name, args, latency, tokens, cost) to logs/run_<timestamp>.jsonl.
@@ -194,9 +195,9 @@ class Toolbox:
                  "sponsorship": r["sponsorship_signal"] or "unclear"} for r in tailor_order(rows, self.cfg)]
 
     def _eligible(self, exclude) -> list[dict]:
-        min_score = self.cfg["agent"]["tailor_min_score"]
+        from src.scorer import tailor_threshold
         return [dict(r) for r in self.store.scored_rows()
-                if r["status"] == "scored" and r["fit_score"] >= min_score and r["id"] not in exclude]
+                if r["status"] == "scored" and r["fit_score"] >= tailor_threshold(r, self.cfg) and r["id"] not in exclude]
 
     def _summary_ok(self, row) -> bool:
         """Jobs whose role family has no pre-approved summary can't be tailored (summaries are never generated)."""
@@ -220,8 +221,10 @@ class Toolbox:
         if job is None:
             raise ToolError(f"unknown job_id {job_id!r}")
         sc = self.store.conn.execute("SELECT fit_score FROM scores WHERE job_id=?", (job_id,)).fetchone()
-        if sc is None or sc["fit_score"] < lim.tailor_min_score:
-            raise ToolError(f"refused: fit_score {sc['fit_score'] if sc else 'none'} is below {lim.tailor_min_score}")
+        from src.scorer import tailor_threshold
+        need = tailor_threshold(job, self.cfg)
+        if sc is None or sc["fit_score"] < need:
+            raise ToolError(f"refused: fit_score {sc['fit_score'] if sc else 'none'} is below {need}")
         if job["status"] == "tailored":
             raise ToolError("refused: this job already has a tailored resume")
         # Tailoring order is enforced here, not left to the model: only the next candidate may be tailored.
@@ -271,7 +274,8 @@ def run_agent(cfg: dict, llm: LLMProvider, toolbox, log: RunLog, echo=print) -> 
     tools_json = json.dumps([t.__dict__ for t in TOOLS])
     messages: list[dict] = [{"role": "user", "content":
                              f"Run today's cycle. Score up to {lim.score_limit} jobs; tailor jobs with fit_score >= "
-                             f"{lim.tailor_min_score}, at most {lim.max_tailor}."}]
+                             f"{lim.tailor_min_score} ({cfg['agent'].get('tailor_min_score_fresh', lim.tailor_min_score)} if posted in the "
+                             f"last 3 days), at most {lim.max_tailor}."}]
     worst_turn = 0.0
 
     def stop(reason: str) -> None:
@@ -406,7 +410,8 @@ def plan(cfg: dict, store: Store, llm: LLMProvider) -> str:
         est = estimate(to_score, system, llm, cfg)
 
     # Tailoring: backlog of untailored 65+ jobs, plus the expected number of new 65+ scores at the historical rate.
-    backlog = [r for r in store.scored_rows() if r["status"] == "scored" and r["fit_score"] >= lim.tailor_min_score]
+    from src.scorer import tailor_threshold
+    backlog = [r for r in store.scored_rows() if r["status"] == "scored" and r["fit_score"] >= tailor_threshold(r, cfg)]
     hist = store.conn.execute("SELECT COUNT(*), SUM(fit_score >= ?) FROM scores", (lim.tailor_min_score,)).fetchone()
     rate = (hist[1] or 0) / hist[0] if hist[0] else 0.1
     expected_new = math.ceil(len(to_score) * rate)

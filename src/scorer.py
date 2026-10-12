@@ -179,6 +179,15 @@ def is_fresh(row, cfg: dict, now: datetime | None = None) -> bool:
     return age.total_seconds() <= cfg.get("ranking", {}).get("fresh_days", 3) * 86400
 
 
+def tailor_threshold(row, cfg: dict, now: datetime | None = None) -> int:
+    """Minimum fit_score to tailor: agent.tailor_min_score (65), or agent.tailor_min_score_fresh (58) for a job
+    posted within ranking.fresh_days (0-3 days)."""
+    a = cfg["agent"]
+    if is_fresh(row, cfg, now):
+        return a.get("tailor_min_score_fresh", a["tailor_min_score"])
+    return a["tailor_min_score"]
+
+
 def result_sort_key(row: dict, cfg: dict, now: datetime | None = None):
     """Base order: fit_score, then freshness (posted within fresh_days first), then sponsorship signal
     (yes > unclear > no), then company tier (startup > growth > big_tech), then location priority."""

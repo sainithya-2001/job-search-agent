@@ -14,7 +14,7 @@ PRICING = {"m": {"input": 1.0, "output": 5.0}}
 
 def agent_cfg(**over):
     a = {"tier": "fast", "max_run_cost_usd": 0.50, "max_tool_calls": 30, "max_consecutive_failures": 2,
-         "max_turns": 25, "score_limit": 15, "max_score_cost_usd": 0.15, "tailor_min_score": 65,
+         "max_turns": 25, "score_limit": 15, "max_score_cost_usd": 0.15, "tailor_min_score": 65, "tailor_min_score_fresh": 58,
          "max_tailor_per_run": 5, "agent_reserve_usd": 0.02, "est_turn_input_tokens": 4000,
          "est_output_tokens": 400}
     return {"agent": {**a, **over}, "llm": {"pricing": PRICING}}
@@ -281,3 +281,20 @@ def test_jobs_without_an_approved_summary_are_held_back(db):
                    "sponsorship_signal": "yes", "uscis_status": "no_data", "scored_at": "2026-10-11"})
     assert [c["job_id"] for c in tb.tailor_candidates()] == ["j0"]          # j2 is higher but has no summary
     assert [c["job_id"] for c in tb.needs_summary()] == ["j2"]
+
+
+def test_fresh_jobs_use_the_lower_tailoring_threshold(db):
+    from datetime import datetime, timedelta, timezone
+    tb, state = toolbox(db)
+    now = datetime.now(timezone.utc)
+    db.conn.execute("UPDATE jobs SET posted_at=? WHERE id='j1'", ((now - timedelta(days=1)).isoformat(),))
+    db.conn.execute("UPDATE jobs SET posted_at=? WHERE id='j2'", ((now - timedelta(days=6)).isoformat(),))
+    db.conn.commit()
+    for jid, fit in (("j1", 60), ("j2", 60)):          # j1 fresh at 60 -> eligible; j2 at 60 but 6 days old -> not
+        db.save_score({"job_id": jid, "fit_score": fit, "fast_score": fit, "escalated": 0, "model": "m",
+                       "role_family": "ai_engineer", "matched_skills": "[]", "gaps": "[]",
+                       "sponsorship_signal": "unclear", "uscis_status": "no_data", "scored_at": "2026-10-11"})
+    ids = [c["job_id"] for c in tb.tailor_candidates()]
+    assert "j1" in ids and "j2" not in ids
+    with pytest.raises(ToolError, match="below 65"):
+        tb.tailor_resume(state, "j2")

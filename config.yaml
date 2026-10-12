@@ -39,6 +39,7 @@ agent:
   score_limit: 15               # jobs scored per run
   max_score_cost_usd: 0.15      # scoring's share of the cap, so tailoring always has budget left
   tailor_min_score: 65
+  tailor_min_score_fresh: 58    # lower bar for jobs posted 0-3 days ago (ranking.fresh_days)
   max_tailor_per_run: 5
   agent_reserve_usd: 0.02       # held back from tools so the model can always finish
   est_turn_input_tokens: 4000   # for the dry-run estimate and the per-turn budget check
@@ -324,7 +325,9 @@ filters:
                   '\bfront[- ]?end\b', '\bfull[- ]?stack\b', '\binfrastructure\b', '\binfra\b', '\bplatform\b',
                   '\bsecurity\b', '\bappsec\b', '\bsystems? engineer', '\bsre\b', '\bsite reliability\b', '\bdevops\b',
                   '\bnetwork operations\b', '\bchip design\b', '\bhardware\b', '\belectrical\b',
-                  '\bmobile\b', '\bios\b', '\bandroid\b']
+                  '\bmobile\b', '\bios\b', '\bandroid\b',
+                  # Non-US regions in the title (case-sensitive so "eu"/"uk" inside other words never match).
+                  '(?-i:\b(EMEA|APAC|LATAM|EU|UK)\b)']
 
   # Other specialties dropped UNLESS the title also matches `ai_title_terms`
   # ("Backend Engineer" is dropped; "Backend Engineer, LLM" is kept).
