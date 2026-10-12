@@ -392,7 +392,8 @@ filters:
     - '\bc2c\b'
     - '\bcorp[- ]to[- ]corp\b'
     - '\bw-?2 through (a |our )?vendor'
-    - '\bcontract[- ]only\b'
+    # Contract / contractor / contract-to-hire / 1099 roles posted by the employer itself are allowed (2026-10-12);
+    # staffing agencies, body shops, and C2C / "W2 through vendor" arrangements are still excluded.
     # Export control / US-person requirements. ITAR and EAR match case-sensitively ("ear", "year" don't count).
     - '\bexport[- ]controlled\b'
     - '(?-i:\bITAR\b)'
@@ -403,7 +404,7 @@ filters:
     - '\bgreen[- ]cards?\b(?!\s*(sponsor|process|support|application))'
 
   # Employment types (from the ATS) that are dropped.
-  exclude_employment_types: [contract, contractor, temporary, intern, internship]
+  exclude_employment_types: [temporary, intern, internship]   # contract/contractor allowed (2026-10-12)
 
   # Keep only postings with at least one US location. Remote roles must be US-remote ("Remote - US",
   # "Remote (United States)", "US-based remote", or remote + a US location). Remote roles limited to other

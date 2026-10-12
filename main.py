@@ -202,8 +202,17 @@ def cmd_tailor(args) -> None:
         print("Refusing to run: expected cost exceeds tailoring.max_run_cost_usd.")
         return
 
+    from src.linkcheck import check_before_tailoring
     spent = 0.0
     for job in jobs:
+        check = check_before_tailoring(job, cfg)          # closed posting / unverified JSearch link: skip, no spend
+        if check is not None:
+            if check.closed:
+                store.mark_closed(job["id"], check.note)
+            else:
+                store.save_link_check(job["id"], False, check.note)
+            print(f"  {'SKIPPED':22s} {job['company'][:16]:16s} {job['title'][:40]:40s} {check.note}")
+            continue
         out = tailor_and_publish(job, store, ctx, llm, cfg, budget_left=cap - spent, pdf=args.pdf)
         res = out.result
         spent += res.cost
@@ -437,6 +446,17 @@ def cmd_confirm(args) -> None:
     store.close()
 
 
+def cmd_close(args) -> None:
+    from src.apply import close
+    from src.sheets import try_sync
+
+    store = Store(ROOT / "data" / "jobs.db")
+    close(store, args.job_id, args.note or "")
+    print(f"{args.job_id}: closed")
+    print(try_sync(store))
+    store.close()
+
+
 def cmd_sheets_sync(args) -> None:
     from src.sheets import try_sync
 
@@ -497,6 +517,10 @@ def main(argv: list[str] | None = None) -> None:
     g.add_argument("--skipped", action="store_true")
     p.add_argument("--note")
     p.set_defaults(func=cmd_confirm)
+    p = sub.add_parser("close", help="Mark a posting closed (no longer accepting applications)")
+    p.add_argument("job_id")
+    p.add_argument("--note")
+    p.set_defaults(func=cmd_close)
     p = sub.add_parser("sheets-sync", help="Upsert the applications table into Google Sheets")
     p.set_defaults(func=cmd_sheets_sync)
 

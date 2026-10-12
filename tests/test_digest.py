@@ -199,7 +199,10 @@ def _fake_get(status=200, html="", final="https://careers.acme.ai/jobs/9"):
 @pytest.mark.parametrize("status, html, final, ok, note", [
     (200, "<h1>Senior Forward Deployed Engineer</h1><p>Apply</p>", "https://careers.acme.ai/jobs/9", True,
      "loads and shows the same title"),
-    (404, "not found", "https://careers.acme.ai/jobs/9", False, "employer link returned HTTP 404"),
+    (404, "not found", "https://careers.acme.ai/jobs/9", False, "closed: posting returns HTTP 404"),
+    (403, "forbidden", "https://careers.acme.ai/jobs/9", False, "employer link returned HTTP 403"),
+    (200, "<h1>Senior Forward Deployed Engineer</h1><p>This job is no longer accepting applications.</p>",
+     "https://careers.acme.ai/jobs/9", False, 'closed: page says "no longer accepting applications"'),
     (200, "<h1>Senior Forward Deployed Engineer</h1>", "https://www.linkedin.com/jobs/view/9", False,
      "employer link redirects to a job board (linkedin.com)"),
     (200, "<h1>Data Analyst</h1><script>Senior Forward Deployed Engineer</script>", "https://careers.acme.ai/jobs/9",
@@ -212,3 +215,91 @@ def test_verify_posting(cfg, monkeypatch, status, html, final, ok, note):
     r = verify_posting("https://careers.acme.ai/jobs/9", "Senior Forward Deployed Engineer (10569)", cfg["jsearch"],
                        render=False)
     assert (r.ok, r.note) == (ok, note)
+
+
+# ---- closed postings -----------------------------------------------------------------------------------------
+@pytest.mark.parametrize("text, found", [
+    ("Sorry, this position has been filled.", "position has been filled"),
+    ("We are no longer accepting applications for this role", "no longer accepting applications"),
+    ("Job Closed", "Job Closed"),
+    ("This job has expired", "This job has expired"),
+    ("The job you are looking for is no longer available", "The job you are looking for is no longer"),
+    ("This role is no longer available.", "role is no longer available"),
+    ("Apply now! We are hiring across teams.", None),
+    ("Our customers close deals; the role closes the loop on feedback.", None),
+])
+def test_closed_reason(text, found):
+    from src.linkcheck import closed_reason
+    assert closed_reason(text) == found
+
+
+@pytest.mark.parametrize("status, html, final, note", [
+    (404, "", "https://jobs.lever.co/acme/1", "closed: posting returns HTTP 404"),
+    (200, "<h1>Jobs at Acme</h1>", "https://job-boards.greenhouse.io/acme?error=true",
+     "closed: Greenhouse redirects to the job board (posting removed)"),
+    (200, "<h1>AI Engineer</h1><p>Position filled</p>", "https://jobs.lever.co/acme/1",
+     'closed: page says "Position filled"'),
+    (200, "<h1>AI Engineer</h1><p>Apply</p>", "https://jobs.lever.co/acme/1", None),
+    (500, "oops", "https://jobs.lever.co/acme/1", None),      # no clear sign of closure: not blocked
+])
+def test_posting_closed(monkeypatch, status, html, final, note):
+    import httpx
+    from src.linkcheck import posting_closed
+    monkeypatch.setattr(httpx, "get", _fake_get(status, html, final))
+    r = posting_closed("https://jobs.lever.co/acme/1", "AI Engineer", render=False)
+    assert (r.note if r else None) == note and (r is None or r.closed)
+
+
+def test_closed_posting_is_skipped_before_tailoring_and_leaves_digest(store, cfg, monkeypatch):
+    import src.linkcheck as lc
+    from src.agent import Limits, RunState, Toolbox
+    from src.linkcheck import LinkCheck
+    add(store, 1, 80)
+    add(store, 2, 70)
+    monkeypatch.setattr(lc, "check_before_tailoring",
+                        lambda job, cfg: LinkCheck(False, 'closed: page says "Position filled"', closed=True)
+                        if job["id"] == "j1" else None)
+    tb = Toolbox(cfg, store, llm=None)
+    tb._master = MASTER
+    state = RunState(Limits.from_cfg(cfg))
+    out = tb.tailor_resume(state, "j1")
+    assert out.result["status"] == "skipped_closed" and out.cost == 0 and state.tailored == []
+    assert out.result["next_candidates"][0]["job_id"] == "j2"
+    assert store.conn.execute("SELECT status FROM jobs WHERE id='j1'").fetchone()[0] == "closed"
+    assert "j1" not in [r["id"] for r in tier_b(store, cfg, MASTER, NOW)[0]]
+
+
+def test_manual_close_removes_tailored_job_from_digest(store, cfg):
+    from src.apply import close
+    add(store, 1, 80, status="tailored")
+    store.upsert_application({"job_id": "j1", "status": "to_review", "notes": "Fit 80."})
+    close(store, "j1", "posting no longer accepting applications")
+    assert tier_a(store, cfg, TODAY) == ([], 0)
+    app = store.application("j1")
+    assert app["status"] == "closed" and app["notes"].endswith("Posting closed: posting no longer accepting applications")
+
+
+# ---- contract labels ---------------------------------------------------------------------------------------
+@pytest.mark.parametrize("etype, title, desc, label", [
+    ("CONTRACTOR", "AI Engineer", "", "contract"),
+    ("Full-time", "AI Engineer (Contract)", "", "contract"),
+    ("Full-time", "AI Engineer", "This is a 6-month contract role.", "contract"),
+    ("Full-time", "AI Engineer", "Paid as 1099.", "contract"),
+    ("Contract", "AI Engineer", "Contract-to-hire after 6 months.", "contract-to-hire"),
+    ("Full-time", "AI Engineer", "You will review vendor contracts and contract terms.", None),
+    (None, "AI Engineer", "", None),
+])
+def test_contract_label(etype, title, desc, label):
+    from src.digest import contract_label
+    assert contract_label({"employment_type": etype, "title": title, "description": desc}) == label
+
+
+def test_contract_roles_labelled_not_ranked_lower(store, cfg):
+    add(store, 1, 60)
+    add(store, 2, 61)
+    store.conn.execute("UPDATE jobs SET employment_type='Contract' WHERE id='j2'")
+    store.conn.commit()
+    rows, _ = tier_b(store, cfg, MASTER, NOW)
+    assert [r["id"] for r in rows] == ["j2", "j1"]                  # fit order unchanged
+    md = build(store, cfg, MASTER, TODAY, NOW)
+    assert "AI Engineer 2 [contract]" in md and "AI Engineer 1 [" not in md

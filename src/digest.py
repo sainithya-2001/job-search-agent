@@ -9,6 +9,7 @@ and can be regenerated at any time. "Today" is the local date, matching the log 
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,28 @@ OUT_DIR = ROOT / "output"
 CLOSED = ("applied", "skipped")
 FIND_POSTING = "find employer posting"
 APPLY_MANUALLY = "apply manually on employer site"
+
+
+_C2H = re.compile(r"\bcontract[- ]to[- ](hire|perm)\b|\btemp[- ]to[- ](hire|perm)\b|\bc2h\b", re.I)
+_CONTRACT_TYPE = re.compile(r"\bcontract(or)?\b", re.I)
+_CONTRACT_DESC = re.compile(r"\b1099\b|\bthis is an? (\d+[- ]month )?contract(or)? (role|position|engagement)\b"
+                            r"|\b\d+[- ](month|week)s? contract\b|\bcontract (role|position|engagement)\b", re.I)
+
+
+def contract_label(row) -> str | None:
+    """'contract-to-hire' / 'contract' from the ATS employment type, the title, or explicit description wording.
+    A label only: contract roles are not ranked lower."""
+    etype, title, desc = row["employment_type"] or "", row["title"] or "", row["description"] or ""
+    if _C2H.search(etype) or _C2H.search(title) or _C2H.search(desc):
+        return "contract-to-hire"
+    if _CONTRACT_TYPE.search(etype) or _CONTRACT_TYPE.search(title) or _CONTRACT_DESC.search(desc):
+        return "contract"
+    return None
+
+
+def _role(row) -> str:
+    label = contract_label(row)
+    return _cell(row["title"]) + (f" [{label}]" if label else "")
 
 
 def apply_route(row) -> str | None:
@@ -147,7 +170,7 @@ def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: d
             qs = route or (f"queued, {q['answered']}/{q['total']} answered" if q and _local_day(q["queued_at"]) == day
                            else "not queued yet")
             L.append(f"| {i} | {r['fit_score']} | {_freshness(r, cfg, now)} | {_cell(r['company'])} "
-                     f"({tiers.get(r['company'], 'unknown')}) | {_cell(r['title'])} | {_cell(r['one_line_reason'])} | "
+                     f"({tiers.get(r['company'], 'unknown')}) | {_role(r)} | {_cell(r['one_line_reason'])} | "
                      f"{qs} | [posting]({r['url']}) |")
         if a_total > len(a_rows):
             L.append(f"\n+ {a_total - len(a_rows)} more tailored today (in the review queue; not listed, Tier A "
@@ -161,7 +184,7 @@ def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: d
               "|---|---|---|---|---|---|---|---|---|"]
         for i, r in enumerate(b_rows, 1):
             L.append(f"| {i} | {r['fit_score']} | {_freshness(r, cfg, now)} | {_cell(r['company'])} | "
-                     f"{_cell(r['title'])} | {_cell(r['one_line_reason'])} | {r['summary']} | {r['held_by']} | "
+                     f"{_role(r)} | {_cell(r['one_line_reason'])} | {r['summary']} | {r['held_by']} | "
                      f"[posting]({r['url']}) |")
     else:
         L.append("None.")

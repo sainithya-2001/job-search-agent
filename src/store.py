@@ -259,6 +259,17 @@ class Store:
                               + " WHERE id=?", (("verified: " if ok else "unverified: ") + note,
                                                 datetime.now(timezone.utc).isoformat(), job_id))
 
+    def mark_closed(self, job_id: str, note: str) -> None:
+        """The posting no longer accepts applications: status 'closed' (out of ranking, tailoring, the review
+        queue, and the digest). An application row that isn't applied/skipped is closed too; nothing is deleted."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.conn:
+            self.conn.execute("UPDATE jobs SET status='closed', link_check=?, link_checked_at=? WHERE id=?",
+                              (note if note.startswith("closed") else f"closed: {note}", now, job_id))
+            self.conn.execute("UPDATE applications SET status='closed', updated_at=?, "
+                              "notes=COALESCE(notes || ' | ', '') || ? WHERE job_id=? AND status NOT IN "
+                              "('applied', 'skipped')", (now, f"Posting closed: {note}", job_id))
+
     def mark_tailored(self, job_id: str, when: str | None = None) -> None:
         with self.conn:
             self.conn.execute("UPDATE jobs SET status='tailored', tailored_at=? WHERE id=?",

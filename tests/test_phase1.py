@@ -109,8 +109,25 @@ def test_recheck_restores_jobs_that_now_pass(tmp_path, cfg_filters):
     store.close()
 
 
-def test_contract_employment_type(jf):
-    assert not jf.check(make_job(employment_type="Contract")).keep
+@pytest.mark.parametrize("etype", ["Contract", "Contractor", "CONTRACTOR", "Contract to Hire"])
+def test_employer_contract_roles_pass(jf, etype):
+    assert jf.check(make_job(employment_type=etype)).keep
+
+
+@pytest.mark.parametrize("desc", ["This is a 6-month contract role, paid via 1099.",
+                                  "Contract-to-hire position with our team.", "Contract only, 12 months."])
+def test_contract_wording_passes(jf, desc):
+    assert jf.check(make_job(description=desc)).keep
+
+
+@pytest.mark.parametrize("desc", ["Corp-to-corp only.", "C2C welcome.", "W2 through vendor only."])
+def test_c2c_and_vendor_arrangements_still_excluded(jf, desc):
+    assert not jf.check(make_job(description=desc)).keep
+
+
+def test_temporary_and_intern_still_excluded(jf):
+    assert not jf.check(make_job(employment_type="Temporary")).keep
+    assert not jf.check(make_job(employment_type="Intern")).keep
 
 
 @pytest.mark.parametrize("loc,remote,desc,ok", [

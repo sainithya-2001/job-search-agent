@@ -26,7 +26,7 @@ from src.store import Store
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG_PATH = ROOT / "logs" / "apply.jsonl"
-DONE = ("applied", "skipped")
+DONE = ("applied", "skipped", "closed")
 
 
 def log_event(event: dict) -> None:
@@ -339,6 +339,14 @@ def _snapshot_fn() -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def close(store: Store, job_id: str, note: str = "") -> None:
+    """Mark a posting closed (no longer accepting applications), e.g. after finding it closed by hand."""
+    if application_fields(store, job_id) is None:
+        raise ValueError(f"unknown job id {job_id}")
+    store.mark_closed(job_id, note or "marked closed by hand")
+    log_event({"event": "closed", "job_id": job_id, "note": note})
 
 
 def confirm(store: Store, job_id: str, applied: bool, note: str = "") -> str:
