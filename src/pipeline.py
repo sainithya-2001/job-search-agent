@@ -47,6 +47,8 @@ class SearchResult:
     relabel: Counter = field(default_factory=Counter)
     saved: bool = True
     js_requests: int = 0                                  # JSearch API requests sent by this search
+    js_jobs: int = 0                                      # JSearch jobs kept (before the shared filters)
+    js_direct: int = 0                                    # ... of which have the employer's own apply link
 
 
 def run_search(cfg: dict, store: Store, *, save: bool = True) -> SearchResult:
@@ -72,8 +74,11 @@ def run_search(cfg: dict, store: Store, *, save: bool = True) -> SearchResult:
         fetched.jobs.extend(js_jobs)
         b = st["budget"]
         pages = ", ".join(f"page {p}: {n}" for p, n in sorted(st["pages"].items())) or "none"
+        direct = sum(bool(j.apply_direct) for j in js_jobs)
+        dropped = ", ".join(f"{n} {k}" for k, n in js_dropped.items()) or "none"
         res.notes.append(f"JSearch: {len(js_jobs)} jobs from {st['sent']} request(s) ({pages}); "
-                         f"{js_dropped} dropped as staffing/excluded employers")
+                         f"{direct} with a direct employer link; dropped: {dropped}")
+        res.js_jobs, res.js_direct = len(js_jobs), direct
         res.notes.append(f"JSearch requests: {b.used_today + st['sent']}/{js_cfg['max_requests_per_day']} today, "
                          f"{b.used_month + st['sent']}/{js_cfg['monthly_soft_limit']} this month "
                          f"(hard limit {js_cfg['monthly_hard_limit']})"
@@ -110,6 +115,12 @@ def recheck_existing(cfg: dict, store: Store, jf: JobFilter | None = None) -> Co
     jf = jf or job_filter(cfg)
     configured = {c["name"] for c in cfg["companies"]}
     relabel = Counter()
+    from src.sources.jsearch import classify_stored_url
+    for row in store.conn.execute("SELECT id, url FROM jobs WHERE source='jsearch' AND apply_direct IS NULL").fetchall():
+        direct, how = classify_stored_url(row["url"], cfg.get("jsearch", {}))
+        with store.conn:
+            store.conn.execute("UPDATE jobs SET apply_direct=?, apply_via=? WHERE id=?", (int(direct), how, row["id"]))
+        relabel["jsearch link classified"] += 1
     for row in store.jobs_by_status("new"):
         if row["source"] != "jsearch" and row["company"] not in configured:
             store.set_status(row["id"], "dropped_company"); relabel["dropped_company"] += 1

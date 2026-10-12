@@ -304,25 +304,64 @@ def test_jsearch_parse_and_staffing_filter(cfg):
     from src.sources import jsearch
     payload = {"data": {"cursor": None, "jobs": [
         {"job_id": "a1", "employer_name": "Acme AI", "job_title": "AI Engineer", "job_city": "Atlanta",
-         "job_state": "GA", "job_country": "US", "job_is_remote": False, "job_apply_link": "u",
+         "job_state": "GA", "job_country": "US", "job_is_remote": False, "job_apply_link": "https://acme.ai/jobs/1",
+         "job_publisher": "Acme AI", "employer_website": "https://www.acme.ai",
          "job_description": "d", "job_posted_at_datetime_utc": "2026-10-01T00:00:00Z", "job_employment_type": "FULLTIME"},
         {"job_id": "a2", "employer_name": "Best Staffing LLC", "job_title": "AI Engineer", "job_description": "d"},
         {"job_id": "a3", "employer_name": "Boston Consulting Group", "job_title": "AI Consultant",
-         "job_is_remote": True, "job_country": "US", "job_description": "d"},
+         "job_is_remote": True, "job_country": "US", "job_description": "d",
+         "job_apply_link": "https://www.linkedin.com/jobs/view/3", "job_publisher": "LinkedIn"},
+        {"job_id": "a4", "employer_name": "Enduring Ventures", "job_title": "AI FDE", "job_description": "d",
+         "job_publisher": "Talent.com", "job_apply_link": "https://www.talent.com/view?id=1"},
+        {"job_id": "a5", "employer_name": "Jobleads-US", "job_title": "AI FDE", "job_description": "d"},
     ]}}
-    jobs, dropped = jsearch.parse(payload, cfg["jsearch"]["exclude_employers"])
-    assert dropped == 1 and [j.company for j in jobs] == ["Acme AI", "Boston Consulting Group"]
+    jobs, dropped = jsearch.parse(payload, cfg["jsearch"])
+    assert dropped == {"staffing/excluded employer": 2, "repost/aggregator site": 1}
+    assert [j.company for j in jobs] == ["Acme AI", "Boston Consulting Group"]
     assert jobs[0].location == "Atlanta, GA, US" and jobs[0].id == "jsearch:a1"
+    assert jobs[0].apply_direct and jobs[0].apply_via == "employer website"
     assert jobs[1].location == "Remote - US" and jobs[1].remote
+    assert jobs[1].apply_direct is False and jobs[1].url == "https://www.linkedin.com/jobs/view/3"
 
 
-def test_jsearch_prefers_direct_ats_apply_link():
+@pytest.mark.parametrize("raw, link, how", [
+    # Greenhouse/Lever/Ashby first, even when listed after a job board
+    ({"job_apply_link": "https://www.linkedin.com/jobs/view/1",
+      "apply_options": [{"publisher": "LinkedIn", "apply_link": "https://www.linkedin.com/jobs/view/1"},
+                        {"publisher": "Acme", "apply_link": "https://job-boards.greenhouse.io/acme/jobs/9"}]},
+     "https://job-boards.greenhouse.io/acme/jobs/9", "greenhouse/lever/ashby"),
+    # another employer ATS
+    ({"job_apply_link": "https://www.indeed.com/viewjob?jk=1",
+      "apply_options": [{"apply_link": "https://acme.wd1.myworkdayjobs.com/External/job/9"}]},
+     "https://acme.wd1.myworkdayjobs.com/External/job/9", "employer ATS (acme.wd1.myworkdayjobs.com)"),
+    # is_direct on a non-board host
+    ({"job_apply_link": "https://www.glassdoor.com/job/1",
+      "apply_options": [{"apply_link": "https://careers.acme.ai/9", "is_direct": True}]},
+     "https://careers.acme.ai/9", "is_direct (careers.acme.ai)"),
+    # is_direct on a job board does not count
+    ({"job_apply_link": "https://www.linkedin.com/jobs/view/1", "job_apply_is_direct": True}, None,
+     "no direct employer link"),
+    ({"job_apply_link": "https://www.dice.com/job-detail/1"}, None, "no direct employer link"),
+])
+def test_jsearch_direct_employer_link(cfg, raw, link, how):
     from src.sources import jsearch
-    raw = {"job_apply_link": "https://www.linkedin.com/jobs/view/1",
-           "apply_options": [{"publisher": "LinkedIn", "apply_link": "https://www.linkedin.com/jobs/view/1"},
-                             {"publisher": "Acme", "apply_link": "https://job-boards.greenhouse.io/acme/jobs/9"}]}
-    assert jsearch.apply_url(raw) == "https://job-boards.greenhouse.io/acme/jobs/9"
-    assert jsearch.apply_url({"job_apply_link": "https://x.com/apply"}) == "https://x.com/apply"
+    assert jsearch.direct_link(raw, cfg["jsearch"]) == (link, how)
+
+
+def test_jsearch_request_excludes_aggregator_publishers(cfg, tmp_path):
+    js = cfg["jsearch"]
+    (_, _, _, st), seen = _js_run(js, Store(tmp_path / "t.db"))
+    pubs = seen[0]["exclude_job_publishers"].split(",")
+    assert {"Talent.com", "Dice", "BeBee", "JobLeads"} <= set(pubs)
+
+
+def test_stored_jsearch_urls_are_classified(cfg):
+    from src.sources.jsearch import classify_stored_url
+    js = cfg["jsearch"]
+    assert classify_stored_url("https://www.talent.com/view?id=1", js)[0] is False
+    assert classify_stored_url("https://bebee.com/us/jobs/x", js)[0] is False
+    assert classify_stored_url("https://jobs.ashbyhq.com/acme/1", js) == (True, "greenhouse/lever/ashby")
+    assert classify_stored_url("https://careers.acme.ai/1", js)[0] is True
 
 
 def test_jsearch_config_fits_the_free_plan(cfg):

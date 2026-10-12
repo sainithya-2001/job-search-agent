@@ -24,6 +24,10 @@ class Job(BaseModel):
     # Not in the core spec, but the ATS tells us this directly and it's the most
     # reliable signal for the "no contract-only" filter.
     employment_type: str | None = None
+    # JSearch only: whether the url is the employer's own apply link, and how that was recognized.
+    # None for ATS-board sources (their url is always the employer's own posting).
+    apply_direct: bool | None = None
+    apply_via: str | None = None
 
 
 class SponsorshipSignal(BaseModel):

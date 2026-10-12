@@ -20,6 +20,17 @@ ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = ROOT / "logs"
 OUT_DIR = ROOT / "output"
 CLOSED = ("applied", "skipped")
+FIND_POSTING = "find employer posting"
+APPLY_MANUALLY = "apply manually on employer site"
+
+
+def apply_route(row) -> str | None:
+    """None = review mode can pre-fill the form (Greenhouse/Lever/Ashby); otherwise what Nithya has to do."""
+    from src.agent import needs_employer_posting
+    from src.forms import job_form
+    if needs_employer_posting(row):
+        return FIND_POSTING
+    return APPLY_MANUALLY if job_form(row)[1] is None else None
 
 
 def _local_day(iso: str | None) -> date | None:
@@ -34,7 +45,7 @@ def run_stats(day: date, log_dir: Path = LOG_DIR) -> list[dict]:
     runs = []
     for path in sorted(log_dir.glob(f"run_{day:%Y%m%d}_*.jsonl")):
         r = {"run": path.stem.removeprefix("run_"), "searched": 0, "passed": 0, "new": 0, "scored": 0,
-             "tailored": 0, "jsearch_requests": 0, "cost": 0.0}
+             "tailored": 0, "jsearch_requests": 0, "jsearch_jobs": 0, "jsearch_direct": 0, "cost": 0.0}
         for line in path.read_text(encoding="utf-8").splitlines():
             e = json.loads(line)
             r["cost"] += e.get("cost_usd") or 0.0
@@ -46,6 +57,8 @@ def run_stats(day: date, log_dir: Path = LOG_DIR) -> list[dict]:
                 r["passed"] += res.get("passed_filters", 0)
                 r["new"] += res.get("new_jobs", 0)
                 r["jsearch_requests"] += res.get("jsearch_requests", 0)
+                r["jsearch_jobs"] += res.get("jsearch_jobs", 0)
+                r["jsearch_direct"] += res.get("jsearch_direct_links", 0)
             elif e["name"] == "score_jobs":
                 r["scored"] += res.get("scored_count", len(res.get("scored", [])))
             elif e["name"] == "tailor_resume" and str(res.get("status", "")).startswith("PASS"):
@@ -90,7 +103,9 @@ def tier_b(store: Store, cfg: dict, master: dict, now: datetime | None = None) -
             r["held_by"] = None
         except ValueError:
             r["summary"], r["held_by"] = f"none approved for {family}", "no approved summary"
-        if r["held_by"] is None:
+        if apply_route(r) == FIND_POSTING:
+            r["held_by"] = FIND_POSTING
+        elif r["held_by"] is None:
             need = tailor_threshold(r, cfg)
             r["held_by"] = f"below {need}" if r["fit_score"] < need else "eligible: next run"
         out.append(r)
@@ -110,10 +125,10 @@ def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: d
     L = [f"# Job digest {day.isoformat()}", ""]
     if runs:
         t = {k: sum(r[k] for r in runs) for k in ("searched", "passed", "new", "scored", "tailored",
-                                                  "jsearch_requests", "cost")}
+                                                  "jsearch_requests", "jsearch_jobs", "jsearch_direct", "cost")}
         L += [f"**{len(runs)} run(s):** searched {t['searched']} postings, filtered out {t['searched'] - t['passed']}, "
               f"{t['passed']} passed ({t['new']} new), scored {t['scored']}, tailored {t['tailored']}. "
-              f"JSearch requests: {t['jsearch_requests']}. **Run cost: ${t['cost']:.4f}**", ""]
+              f"JSearch: {t['jsearch_requests']} request(s), {t['jsearch_jobs']} jobs, {t['jsearch_direct']} with a direct employer link. **Run cost: ${t['cost']:.4f}**", ""]
         if len(runs) > 1:
             L += ["| Run | Searched | Filtered out | Passed | New | Scored | Tailored | Cost |",
                   "|---|---|---|---|---|---|---|---|"]
@@ -124,11 +139,11 @@ def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: d
 
     L += [f"## Tier A: tailored today ({min(a_total, len(a_rows))} of max {cfg['digest']['tier_a_max']})", ""]
     if a_rows:
-        L += ["| # | Fit | Freshness | Company (tier) | Role | Why | Queue | Link |", "|---|---|---|---|---|---|---|---|"]
+        L += ["| # | Fit | Freshness | Company (tier) | Role | Why | Apply / queue | Link |", "|---|---|---|---|---|---|---|---|"]
         for i, r in enumerate(a_rows, 1):
-            q = queue.get(r["id"])
-            qs = (f"queued, {q['answered']}/{q['total']} answered" if q and _local_day(q["queued_at"]) == day
-                  else "not queued yet")
+            q, route = queue.get(r["id"]), apply_route(r)
+            qs = route or (f"queued, {q['answered']}/{q['total']} answered" if q and _local_day(q["queued_at"]) == day
+                           else "not queued yet")
             L.append(f"| {i} | {r['fit_score']} | {_freshness(r, cfg, now)} | {_cell(r['company'])} "
                      f"({tiers.get(r['company'], 'unknown')}) | {_cell(r['title'])} | {_cell(r['one_line_reason'])} | "
                      f"{qs} | [posting]({r['url']}) |")

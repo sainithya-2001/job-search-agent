@@ -148,7 +148,8 @@ class Toolbox:
         res = run_search(self.cfg, self.store)
         return ToolOutput({"fetched": res.fetched, "passed_filters": res.kept, "new_jobs": len(res.new),
                            "unscored_in_db": len(self.store.unscored_jobs()), "board_errors": len(res.errors),
-                           "jsearch_requests": res.js_requests})
+                           "jsearch_requests": res.js_requests, "jsearch_jobs": res.js_jobs,
+                           "jsearch_direct_links": res.js_direct})
 
     def score_jobs(self, state: RunState, limit: int | None = None) -> ToolOutput:
         from src.resume import load_master, profile_text
@@ -209,7 +210,8 @@ class Toolbox:
     def _eligible(self, exclude) -> list[dict]:
         from src.scorer import hide_stale, tailor_threshold
         rows = [dict(r) for r in self.store.scored_rows()
-                if r["status"] == "scored" and r["fit_score"] >= tailor_threshold(r, self.cfg) and r["id"] not in exclude]
+                if r["status"] == "scored" and r["fit_score"] >= tailor_threshold(r, self.cfg) and r["id"] not in exclude
+                and not needs_employer_posting(r)]
         return hide_stale(rows, self.cfg)[0]          # never tailor a posting older than max_posting_age_days
 
     def _summary_ok(self, row) -> bool:
@@ -278,6 +280,12 @@ class Toolbox:
 
 
 # ---- the loop ---------------------------------------------------------------------------------------------------
+def needs_employer_posting(row) -> bool:
+    """A JSearch job with no direct employer link (only a job-board link): never tailored; the digest lists it
+    as "find employer posting"."""
+    return row["source"] == "jsearch" and not row["apply_direct"]
+
+
 def run_agent(cfg: dict, llm: LLMProvider, toolbox, log: RunLog, echo=print) -> RunState:
     lim = Limits.from_cfg(cfg)
     state = RunState(lim)

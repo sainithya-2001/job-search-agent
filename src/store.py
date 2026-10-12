@@ -148,9 +148,14 @@ class Store:
             if col.split()[0] not in cols:
                 with self.conn:
                     self.conn.execute(f"ALTER TABLE applications ADD COLUMN {col}")
-        if "tailored_at" not in {r[1] for r in self.conn.execute("PRAGMA table_info(jobs)")}:
+        job_cols = {r[1] for r in self.conn.execute("PRAGMA table_info(jobs)")}
+        if "tailored_at" not in job_cols:
             with self.conn:     # when the current tailored resume was made (UTC ISO); NULL for older ones
                 self.conn.execute("ALTER TABLE jobs ADD COLUMN tailored_at TEXT")
+        if "apply_direct" not in job_cols:
+            with self.conn:     # JSearch: 1 = url is the employer's own link, 0 = only a job-board link
+                self.conn.execute("ALTER TABLE jobs ADD COLUMN apply_direct INTEGER")
+                self.conn.execute("ALTER TABLE jobs ADD COLUMN apply_via TEXT")
 
     def jobs_by_status(self, status: str) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM jobs WHERE status=?", (status,)).fetchall()
@@ -169,12 +174,13 @@ class Store:
                 cur = self.conn.execute(
                     """INSERT OR IGNORE INTO jobs
                        (id, dedupe_key, company, title, location, remote, url, description,
-                        source, posted_at, employment_type, role_hint, first_seen_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        source, posted_at, employment_type, role_hint, first_seen_at, apply_direct, apply_via)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (job.id, dedupe_key(job), job.company, job.title, job.location, int(job.remote),
                      job.url, job.description, job.source,
                      job.posted_at.isoformat() if job.posted_at else None,
-                     job.employment_type, role_hints.get(job.id), now),
+                     job.employment_type, role_hints.get(job.id), now,
+                     None if job.apply_direct is None else int(job.apply_direct), job.apply_via),
                 )
                 if cur.rowcount:
                     new.append(job)

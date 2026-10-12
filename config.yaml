@@ -301,12 +301,28 @@ jsearch:
     - AI engineer OR solutions engineer OR forward deployed engineer
     - data analyst OR analytics engineer OR business analyst
     - AI product manager OR technical program manager
+  # Repost/aggregator sites: excluded in the request (exclude_job_publishers) and again in parse() by publisher
+  # name or link host. Their postings copy other employers' jobs and rarely link to the employer.
+  exclude_publishers: [Talent.com, Dice, BeBee, JobLeads, Jooble, Lensa, Adzuna, Jobrapido, Careerjet, Learn4Good,
+                       Recruit.net, Jobright, JobGet, Jobilize, Salary.com, Jobs2Careers, Monster, SimplyHired]
+  aggregator_hosts: [talent.com, dice.com, bebee.com, jobleads.com, jooble.org, lensa.com, adzuna.com, jobrapido.com,
+                     careerjet.com, learn4good.com, recruit.net, jobright.ai, jobget.com, jobilize.com, salary.com,
+                     jobs2careers.com, monster.com, simplyhired.com]
+  # Big job boards: allowed as publishers, but a link there is never "the employer's direct link".
+  job_board_hosts: [linkedin.com, indeed.com, glassdoor.com, ziprecruiter.com, careerbuilder.com, builtin.com,
+                    wellfound.com, themuse.com]
+  # Employer ATSs other than Greenhouse/Lever/Ashby: a link here is the employer's own posting (applied manually).
+  employer_ats_hosts: [myworkdayjobs.com, myworkdaysite.com, smartrecruiters.com, icims.com, jobvite.com,
+                       workable.com, bamboohr.com, recruitee.com, breezy.hr, applytojob.com, rippling-ats.com,
+                       ats.rippling.com, paylocity.com, ultipro.com, ukg.com, successfactors.com, oraclecloud.com,
+                       taleo.net, teamtailor.com, pinpointhq.com, dover.com, gem.com, jazzhr.com, eightfold.ai]
   # Employers dropped before anything else (staffing agencies, body shops, marketplaces).
   # No generic "consulting" pattern: it would drop BCG (BCG X is a target). IT-services firms are listed by name.
   exclude_employers: ['staffing', 'recruit', '\btalent\b', 'infotech', '\bsolutions,? (inc|llc)\b',
                       'teksystems', 'robert half', 'randstad', 'insight global', 'kforce', 'apex systems', 'cybercoders',
                       '\bdice\b', 'jobot', 'motion recruitment', 'mercor', '\bturing\b', 'toptal', 'hcl', 'infosys',
-                      'wipro', 'cognizant', 'tata consultancy', 'capgemini', 'accenture']
+                      'wipro', 'cognizant', 'tata consultancy', 'capgemini', 'accenture',
+                      'jobleads', 'jooble', 'bebee', 'lensa']
 
 filters:
   # Role families in priority order. A title is kept if it matches any pattern;

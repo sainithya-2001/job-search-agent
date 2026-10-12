@@ -308,8 +308,9 @@ def _queue_today(cfg: dict, store: Store) -> None:
     from src.digest import _local_day
 
     queued = {r["job_id"] for r in store.conn.execute("SELECT job_id FROM apply_queue")}
-    ids = [r["id"] for r in store.jobs_by_status("tailored")
-           if _local_day(r["tailored_at"]) == date.today() and r["id"] not in queued]
+    from src.digest import apply_route
+    ids = [r["id"] for r in store.jobs_by_status("tailored")       # only forms review mode can pre-fill
+           if _local_day(r["tailored_at"]) == date.today() and r["id"] not in queued and apply_route(r) is None]
     if not ids:
         return
     print(f"\nQueueing {len(ids)} job(s) tailored today (reading forms headlessly)...")

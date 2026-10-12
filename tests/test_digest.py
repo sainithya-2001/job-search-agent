@@ -25,7 +25,7 @@ def cfg():
 
 def add(store, i, fit, family="ai_engineer", posted_days=5, status="scored", tailored_at=None):
     j = Job(id=f"j{i}", company=f"Co{i}", title=f"AI Engineer {i}", location="Atlanta, GA", remote=False,
-            url=f"https://example.com/{i}", description="d", source="greenhouse",
+            url=f"https://job-boards.greenhouse.io/co{i}/jobs/{i}", description="d", source="greenhouse",
             posted_at=NOW - timedelta(days=posted_days))
     store.save([j], {j.id: family})
     store.save_score({"job_id": j.id, "fit_score": fit, "fast_score": fit, "escalated": 0, "model": "m",
@@ -129,3 +129,40 @@ def test_stale_jobs_are_not_tailor_candidates(store, cfg):
     tb = Toolbox(cfg, store, llm=None)
     tb._master = MASTER
     assert [c["job_id"] for c in tb.tailor_candidates()] == ["j2"]
+
+
+def add_jsearch(store, i, fit, direct, url, posted_days=2, status="scored"):
+    j = Job(id=f"jsearch:{i}", company=f"JS{i}", title=f"Forward Deployed Engineer {i}", location="Remote - US",
+            remote=True, url=url, description="d", source="jsearch", posted_at=NOW - timedelta(days=posted_days),
+            apply_direct=direct, apply_via="test")
+    store.save([j], {j.id: "forward_deployed"})
+    store.save_score({"job_id": j.id, "fit_score": fit, "fast_score": fit, "escalated": 0, "model": "m",
+                      "role_family": "forward_deployed", "matched_skills": "[]", "gaps": "[]",
+                      "sponsorship_signal": "unclear", "uscis_status": "no_data", "scored_at": "2026-10-12",
+                      "one_line_reason": "r"})
+    if status == "tailored":
+        store.mark_tailored(j.id, NOW.isoformat())
+
+
+def test_jsearch_without_direct_link_is_never_tailored_and_says_find_posting(store, cfg):
+    from src.agent import Toolbox
+    add_jsearch(store, 1, 80, False, "https://www.talent.com/view?id=1")
+    add_jsearch(store, 2, 70, True, "https://acme.wd5.myworkdayjobs.com/en-US/careers/job/9")
+    add_jsearch(store, 3, 72, True, "https://job-boards.greenhouse.io/acme/jobs/3")
+    tb = Toolbox(cfg, store, llm=None)
+    tb._master = {"approved_summaries": [{"id": "sum_ai", "text": "x",
+                                          "use_for": {"role_families": ["forward_deployed"]}}]}
+    assert [c["job_id"] for c in tb.tailor_candidates()] == ["jsearch:3", "jsearch:2"]
+    rows, _ = tier_b(store, cfg, tb._master, NOW)
+    by = {r["id"]: r for r in rows}
+    assert by["jsearch:1"]["held_by"] == "find employer posting"
+    assert by["jsearch:2"]["held_by"] == "eligible: next run"
+
+
+def test_tier_a_marks_non_prefillable_employer_links(store, cfg):
+    add_jsearch(store, 2, 70, True, "https://acme.wd5.myworkdayjobs.com/en-US/careers/job/9", status="tailored")
+    add_jsearch(store, 3, 72, True, "https://job-boards.greenhouse.io/acme/jobs/3", status="tailored")
+    md = build(store, cfg, MASTER, TODAY, NOW)
+    tier_a_md = md.split("## Tier B")[0]
+    assert "apply manually on employer site" in tier_a_md.split("JS2")[1].splitlines()[0]
+    assert "not queued yet" in tier_a_md.split("JS3")[1].splitlines()[0]
