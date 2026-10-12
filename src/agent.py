@@ -207,9 +207,10 @@ class Toolbox:
                  "sponsorship": r["sponsorship_signal"] or "unclear"} for r in tailor_order(rows, self.cfg)]
 
     def _eligible(self, exclude) -> list[dict]:
-        from src.scorer import tailor_threshold
-        return [dict(r) for r in self.store.scored_rows()
+        from src.scorer import hide_stale, tailor_threshold
+        rows = [dict(r) for r in self.store.scored_rows()
                 if r["status"] == "scored" and r["fit_score"] >= tailor_threshold(r, self.cfg) and r["id"] not in exclude]
+        return hide_stale(rows, self.cfg)[0]          # never tailor a posting older than max_posting_age_days
 
     def _summary_ok(self, row) -> bool:
         """Jobs whose role family has no pre-approved summary can't be tailored (summaries are never generated)."""

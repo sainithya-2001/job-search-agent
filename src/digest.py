@@ -12,7 +12,7 @@ import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from src.scorer import company_tiers, is_fresh, rank_results, tailor_threshold
+from src.scorer import company_tiers, hide_stale, is_fresh, rank_results, tailor_threshold
 from src.store import Store
 from src.verify import select_summary
 
@@ -74,12 +74,14 @@ def tier_a(store: Store, cfg: dict, day: date) -> tuple[list[dict], int]:
     return ranked[: cfg["digest"]["tier_a_max"]], len(ranked)
 
 
-def tier_b(store: Store, cfg: dict, master: dict) -> list[dict]:
-    """Next ranked untailored jobs at or above digest.tier_b_min_score, not applied/skipped."""
-    closed = {r["job_id"] for r in store.applications() if r["status"] in CLOSED}
+def tier_b(store: Store, cfg: dict, master: dict, now: datetime | None = None) -> tuple[list[dict], int]:
+    """Next ranked untailored jobs at or above digest.tier_b_min_score, not applied/skipped, and not older than
+    filters.max_posting_age_days. -> (rows, number hidden as too old)"""
+    apps = {r["job_id"]: r["status"] for r in store.applications()}
     d = cfg["digest"]
     rows = [dict(r) for r in store.scored_rows()
-            if r["status"] == "scored" and r["fit_score"] >= d["tier_b_min_score"] and r["id"] not in closed]
+            if r["status"] == "scored" and r["fit_score"] >= d["tier_b_min_score"] and apps.get(r["id"]) not in CLOSED]
+    rows, hidden = hide_stale(rows, cfg, now, apps)
     out = []
     for r in rank_results(rows, cfg)[: d["tier_b_max"]]:
         family = r["role_family"] or r["role_hint"]
@@ -92,7 +94,7 @@ def tier_b(store: Store, cfg: dict, master: dict) -> list[dict]:
             need = tailor_threshold(r, cfg)
             r["held_by"] = f"below {need}" if r["fit_score"] < need else "eligible: next run"
         out.append(r)
-    return out
+    return out, hidden
 
 
 def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: datetime | None = None,
@@ -102,7 +104,7 @@ def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: d
     tiers = company_tiers(cfg)
     runs = run_stats(day, log_dir)
     a_rows, a_total = tier_a(store, cfg, day)
-    b_rows = tier_b(store, cfg, master)
+    b_rows, b_hidden = tier_b(store, cfg, master, now)
     queue = {r["job_id"]: r for r in store.conn.execute("SELECT job_id, answered, total, queued_at FROM apply_queue")}
 
     L = [f"# Job digest {day.isoformat()}", ""]
@@ -146,6 +148,9 @@ def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: d
                      f"[posting]({r['url']}) |")
     else:
         L.append("None.")
+    if b_hidden:
+        L.append(f"\n{b_hidden} job(s) scoring {cfg['digest']['tier_b_min_score']}+ hidden: posted more than "
+                 f"{cfg['filters']['max_posting_age_days']} days ago.")
     return "\n".join(L) + "\n"
 
 

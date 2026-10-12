@@ -82,7 +82,8 @@ def cmd_search(args) -> None:
 def cmd_score(args) -> None:
     from src.llm import get_llm
     from src.resume import load_master, profile_text
-    from src.scorer import SYSTEM_TEMPLATE, estimate, is_fresh, rank_results, score_jobs, select_jobs, select_mix
+    from src.scorer import SYSTEM_TEMPLATE, estimate, hide_stale, is_fresh, rank_results, score_jobs, select_jobs, \
+        select_mix
     from src.sponsorship import SponsorshipDB
 
     cfg = load_config()
@@ -136,7 +137,8 @@ def cmd_score(args) -> None:
     print()
     res = score_jobs(jobs, system, llm, cfg, store, sponsor_db, est, cap=cap)
 
-    rows = rank_results(res.scored, cfg)
+    rows, stale = hide_stale(res.scored, cfg)
+    rows = rank_results(rows, cfg)
     print(f"\nActual cost: ${res.spent:.4f} over {res.calls} API calls "
           f"({sum(r['escalated'] for r in res.scored)} escalated to {llm.models['strong']})")
     if res.stopped_early:
@@ -150,6 +152,8 @@ def cmd_score(args) -> None:
         days = (now - (p if p.tzinfo else p.replace(tzinfo=timezone.utc))).days
         return f"{days}d" + (" *" if is_fresh(r, cfg, now) else "")
 
+    if stale:
+        print(f"{stale} scored job(s) hidden: posted more than {cfg['filters']['max_posting_age_days']} days ago.")
     print("Ranked by fit, then freshness (* = posted 0-3 days ago; a fresh job goes ahead of an older one up to "
           f"{cfg.get('ranking', {}).get('freshness_preference_points', 5)} points higher), sponsorship, tier, location.")
     print(f"\n{'#':>2}  {'Fit':>3}  {'Posted':7s} {'Family':23s} {'Company':16s} {'Title':44s} {'Location':22s} "

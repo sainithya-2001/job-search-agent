@@ -26,7 +26,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
 - Export-control / US-person requirements: "export controlled", ITAR, EAR, "U.S. person", "permanent resident", "green card" (except positive mentions like "green card sponsorship")
 - Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps, network operations, chip design, hardware, mobile, iOS, Android, electrical, and non-US regions in the title (EMEA, APAC, LATAM, EU, UK) (even with AI in the title); Staff, Principal, Lead, Director, VP, Head of, Engineering Manager. Senior is kept. Other "Manager" titles pass only if they match a role family (program_product_manager).
 - Duplicates (same company + normalized title)
-- Postings older than 14 days (filters.max_posting_age_days). Jobs with no reliable date are kept and treated as 4-14 days old (not fresh).
+- Postings older than 14 days (filters.max_posting_age_days). Jobs with no reliable date are kept and treated as 4-14 days old (not fresh). Jobs already in the database are re-checked against this at display time: once a scored job's posting is older than 14 days it is hidden from ranking, tailoring candidates, and the digest's Tier B (scorer.hide_stale). Jobs that are tailored, queued, or applied are never hidden or removed; the review queue keeps them regardless of age.
 
 ## Stack
 - Python 3.11+, venv

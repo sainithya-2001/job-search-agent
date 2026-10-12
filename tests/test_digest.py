@@ -64,7 +64,8 @@ def test_tier_b_next_10_untailored_50_plus_with_summary(store, cfg):
     add(store, 5, 55, status="excluded")
     for i in range(10, 22):
         add(store, i, 50 + (i % 5))
-    rows = tier_b(store, cfg, MASTER)
+    rows, hidden = tier_b(store, cfg, MASTER, NOW)
+    assert hidden == 0
     ids = [r["id"] for r in rows]
     assert len(rows) == 10 and not {"j0", "j1", "j5"} & set(ids)
     assert ids[:3] == ["j4", "j3", "j2"]
@@ -77,7 +78,7 @@ def test_tier_b_next_10_untailored_50_plus_with_summary(store, cfg):
 def test_applied_or_skipped_jobs_are_not_in_tier_b(store, cfg):
     add(store, 1, 60)
     store.upsert_application({"job_id": "j1", "status": "skipped"})
-    assert tier_b(store, cfg, MASTER) == []
+    assert tier_b(store, cfg, MASTER, NOW) == ([], 0)
 
 
 def test_run_stats_sum_today_logs(tmp_path):
@@ -95,3 +96,36 @@ def test_run_stats_sum_today_logs(tmp_path):
     assert (r["searched"], r["passed"], r["new"], r["scored"], r["tailored"], r["jsearch_requests"]) == \
         (8000, 60, 4, 4, 1, 7)
     assert r["cost"] == pytest.approx(0.211)
+
+
+def test_stale_jobs_hidden_from_tier_b_but_tailored_ones_kept(store, cfg):
+    add(store, 1, 64, posted_days=20)                                  # scored, too old -> hidden
+    add(store, 2, 55, posted_days=13)                                  # within 14 days -> shown
+    add(store, 3, 70, posted_days=40, status="tailored")               # tailored today, old posting -> kept
+    rows, hidden = tier_b(store, cfg, MASTER, NOW)
+    assert [r["id"] for r in rows] == ["j2"] and hidden == 1
+    a_rows, _ = tier_a(store, cfg, TODAY)
+    assert [r["id"] for r in a_rows] == ["j3"]
+    md = build(store, cfg, MASTER, TODAY, NOW)
+    assert "1 job(s) scoring 50+ hidden: posted more than 14 days ago." in md
+
+
+def test_hide_stale_keeps_pipeline_jobs_and_undated(cfg):
+    from src.scorer import hide_stale
+    old = (NOW - timedelta(days=30)).isoformat()
+    rows = [{"id": "a", "status": "scored", "posted_at": old},
+            {"id": "b", "status": "tailored", "posted_at": old},
+            {"id": "c", "status": "scored", "posted_at": old},          # queued/applied by application status
+            {"id": "d", "status": "scored", "posted_at": None},         # no date: kept
+            {"id": "e", "status": "scored", "posted_at": (NOW - timedelta(days=14)).isoformat()}]
+    kept, hidden = hide_stale(rows, cfg, NOW, {"c": "applied"})
+    assert [r["id"] for r in kept] == ["b", "c", "d", "e"] and hidden == 1
+
+
+def test_stale_jobs_are_not_tailor_candidates(store, cfg):
+    from src.agent import Toolbox
+    add(store, 1, 80, posted_days=30)
+    add(store, 2, 70, posted_days=2)
+    tb = Toolbox(cfg, store, llm=None)
+    tb._master = MASTER
+    assert [c["job_id"] for c in tb.tailor_candidates()] == ["j2"]

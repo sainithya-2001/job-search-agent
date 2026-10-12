@@ -179,6 +179,32 @@ def is_fresh(row, cfg: dict, now: datetime | None = None) -> bool:
     return age.total_seconds() <= cfg.get("ranking", {}).get("fresh_days", 3) * 86400
 
 
+def is_stale(row, cfg: dict, now: datetime | None = None) -> bool:
+    """Posted more than filters.max_posting_age_days (14) ago. No reliable date = not stale (kept)."""
+    posted, max_days = _get(row, "posted_at"), cfg.get("filters", {}).get("max_posting_age_days")
+    if not posted or not max_days:
+        return False
+    posted = datetime.fromisoformat(posted) if isinstance(posted, str) else posted
+    if posted.tzinfo is None:
+        posted = posted.replace(tzinfo=timezone.utc)
+    return ((now or datetime.now(timezone.utc)) - posted).total_seconds() > max_days * 86400
+
+
+# Jobs already in the pipeline keep their place regardless of age (the review queue keeps them).
+PIPELINE_JOB_STATUSES = {"tailored"}
+PIPELINE_APP_STATUSES = {"queued", "to_review", "applied"}
+
+
+def hide_stale(rows: list, cfg: dict, now: datetime | None = None,
+               app_status: dict[str, str] | None = None) -> tuple[list, int]:
+    """Drop jobs older than max_posting_age_days from ranking/tailoring, except tailored, queued, or applied ones.
+    app_status: job id -> applications.status. -> (kept rows, number hidden)"""
+    app_status = app_status or {}
+    kept = [r for r in rows if not is_stale(r, cfg, now) or _get(r, "status") in PIPELINE_JOB_STATUSES
+            or app_status.get(_get(r, "id") or _get(r, "job_id")) in PIPELINE_APP_STATUSES]
+    return kept, len(rows) - len(kept)
+
+
 def tailor_threshold(row, cfg: dict, now: datetime | None = None) -> int:
     """Minimum fit_score to tailor: agent.tailor_min_score (65), or agent.tailor_min_score_fresh (58) for a job
     posted within ranking.fresh_days (0-3 days)."""
