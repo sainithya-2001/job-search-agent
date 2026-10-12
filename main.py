@@ -237,7 +237,13 @@ def cmd_render(args) -> None:
                   f"re-run `tailor`")
             continue
         cov, _ = job_coverage(store, job, ctx, None, cfg)  # cached keywords only: re-rendering never calls the API
-        files, _, _ = publish(tr, ctx.master, verifier, base, report, args.pdf, cov.wording() if cov else None)
+        try:
+            files, _, _ = publish(tr, ctx.master, verifier, base, report, args.pdf, cov.wording() if cov else None)
+        except PermissionError as e:
+            # Windows locks a PDF that's open in a viewer. The PDF is written first, so nothing was changed.
+            print(f"  ! {job['company']}: can't write {Path(e.filename).name} (open in another program?); "
+                  f"skipped, files unchanged")
+            continue
         print(f"  {job['company'][:16]:16s} -> {', '.join(files)}")
     store.close()
 
