@@ -158,6 +158,7 @@ class Toolbox:
         limit = min(limit or lim.score_limit, lim.score_limit)
         cap = min(lim.max_score_cost, state.remaining - lim.agent_reserve)
         jobs = select_jobs(self.store.unscored_jobs(), self.cfg, limit)
+        available = len(jobs)                         # may be fewer than requested: only that many are unscored
         out = ToolOutput({"scored": [], "tailor_candidates": self.tailor_candidates()})
         if not jobs:
             out.result["note"] = "no unscored jobs"
@@ -176,15 +177,25 @@ class Toolbox:
             "scored": [{"job_id": r["job_id"], "company": r["company"], "title": r["title"],
                         "fit_score": r["fit_score"]} for r in sorted(res.scored, key=lambda r: -r["fit_score"])],
             # Stated explicitly so the model's summary can't confuse "asked for" with "scored".
-            "requested": limit, "scored_count": len(res.scored),
-            "note": (f"scored {len(res.scored)} of {limit} requested: trimmed to fit the ${cap:.2f} scoring budget"
-                     if len(res.scored) < limit else f"scored {len(res.scored)} as requested"),
+            "requested": limit, "available": available, "scored_count": len(res.scored),
+            "note": self._score_note(len(res.scored), limit, available, cap, res.stopped_early),
             "stopped_early": res.stopped_early,
             "tailor_candidates": self.tailor_candidates(),
             # 65+ jobs held back because their role family has no approved summary (Nithya must add one).
             "needs_approved_summary": self.needs_summary(),
         }
         return out
+
+    @staticmethod
+    def _score_note(scored: int, requested: int, available: int, cap: float, stopped_early) -> str:
+        """Say why fewer were scored than requested; the budget is blamed only when it actually cut jobs."""
+        if scored >= requested:
+            return f"scored {scored} as requested"
+        if scored >= available:
+            return f"scored all {scored} unscored job(s); fewer than the {requested} requested were available"
+        if stopped_early:
+            return f"scored {scored} of {available} available: stopped early ({stopped_early})"
+        return f"scored {scored} of {available} available: trimmed to fit the ${cap:.2f} scoring budget"
 
     def tailor_candidates(self, exclude: set[str] = frozenset()) -> list[dict]:
         """Untailored jobs at or above the minimum fit, in tailoring order (scorer.tailor_order)."""

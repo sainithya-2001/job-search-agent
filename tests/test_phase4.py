@@ -298,3 +298,12 @@ def test_fresh_jobs_use_the_lower_tailoring_threshold(db):
     assert "j1" in ids and "j2" not in ids
     with pytest.raises(ToolError, match="below 65"):
         tb.tailor_resume(state, "j2")
+
+
+def test_score_note_blames_budget_only_when_it_cut_jobs():
+    note = Toolbox._score_note
+    assert note(15, 15, 40, 0.15, None) == "scored 15 as requested"
+    assert "fewer than the 15 requested were available" in note(1, 15, 1, 0.15, None)
+    assert "budget" not in note(1, 15, 1, 0.15, None)
+    assert "trimmed to fit the $0.15 scoring budget" in note(4, 15, 15, 0.15, None)
+    assert "stopped early" in note(4, 15, 15, 0.15, "cost cap")
