@@ -44,6 +44,17 @@ def ats_of(url: str) -> str | None:
     return None
 
 
+def job_form(job) -> tuple[str, str | None]:
+    """(form URL, ats) for a job row. Greenhouse companies with their own careers site (absolute_url like
+    careers.datadoghq.com/...?gh_jid=...) redirect the hosted Greenhouse page there, so for them the form is
+    Greenhouse's embeddable application form, built from the board slug and job id in our job id."""
+    url = job["url"] or ""
+    if job["source"] == "greenhouse" and ats_of(url) != "greenhouse":
+        _, slug, gh_id = job["id"].split(":", 2)
+        return f"https://job-boards.greenhouse.io/embed/job_app?for={slug}&token={gh_id}", "greenhouse"
+    return form_url(url), ats_of(url)
+
+
 def form_url(job_url: str) -> str:
     """The page that holds the application form itself."""
     ats = ats_of(job_url)
@@ -81,6 +92,7 @@ const optionText = el => {
 
 _JS_GREENHOUSE = _JS_HELPERS + r"""
 const form = document.querySelector('form#application-form') || document.querySelector('form');
+if (!form) return [];
 const out = [], groups = new Set();
 const labelOf = el => {
     const ids = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
@@ -119,6 +131,7 @@ return out;
 
 _JS_LEVER = _JS_HELPERS + r"""
 const form = document.querySelector('form');
+if (!form) return [];
 const out = [], used = new Set();
 for (const q of form.querySelectorAll('.application-question')) {
     const inputs = Array.from(q.querySelectorAll('input, textarea, select')).filter(e => !skip(e));
@@ -177,6 +190,41 @@ return out;
 """
 
 _EXTRACTORS = {"greenhouse": _JS_GREENHOUSE, "lever": _JS_LEVER, "ashby": _JS_ASHBY}
+
+
+# A question container per ATS. Ashby (and Greenhouse's new boards) render the form with JavaScript AFTER the network
+# goes idle, so reading right after page.goto(..., "networkidle") can find nothing (Ashby: 0 fields at ~1.2s, all of
+# them at ~2.2s). wait_for_form waits for these to appear and stop changing.
+FORM_READY = {"ashby": ".ashby-application-form-field-entry",
+              "greenhouse": "#application-form input, #application-form textarea, #application-form select",
+              "lever": ".application-question"}
+
+
+def wait_for_form(page, ats: str, timeout_ms: int = 20000) -> int:
+    """Wait until the application form's questions have rendered and their count is stable. Returns the count
+    (0 = no form appeared: closed posting, wrong page, or an ATS layout this code doesn't know)."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    sel = FORM_READY[ats]
+    try:
+        page.wait_for_selector(sel, timeout=timeout_ms)
+    except PlaywrightTimeout:
+        # Ashby job pages have Overview / Application tabs; if we landed on Overview, open Application.
+        tab = page.get_by_role("tab", name=re.compile(r"^\s*application\s*$", re.I))
+        if ats != "ashby" or tab.count() == 0:
+            return 0
+        safe_click(tab.first)
+        try:
+            page.wait_for_selector(sel, timeout=timeout_ms // 2)
+        except PlaywrightTimeout:
+            return 0
+    prev, n = -1, page.locator(sel).count()
+    for _ in range(10):                      # some forms render sections in stages: wait for a stable count
+        if n == prev:
+            break
+        page.wait_for_timeout(400)
+        prev, n = n, page.locator(sel).count()
+    return n
 
 
 def read_questions(page, ats: str, load_options: bool = True) -> list[FormQuestion]:

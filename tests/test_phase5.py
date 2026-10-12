@@ -341,3 +341,55 @@ def test_no_submit_code_anywhere():
     clicks = [m.start() for m in re.finditer(r"\.click\(", forms)]
     # the only raw click is the one inside safe_click (after its submit-word check)
     assert len(clicks) == 1 and re.findall(r"\ndef (\w+)", forms[:clicks[0]])[-1] == "safe_click"
+
+
+# ---- form rendering timing (the "pre-filled 0/0" bug) ------------------------------------------------------------
+LATE_ASHBY = """<div id="root"></div><script>setTimeout(() => { document.getElementById('root').innerHTML = `
+<form><div class="ashby-application-form-field-entry" data-field-path="_systemfield_email">
+  <label class="ashby-application-form-question-title" for="_systemfield_email">Email</label>
+  <input id="_systemfield_email" name="_systemfield_email" type="email" required></div>
+<div class="ashby-application-form-field-entry" data-field-path="_systemfield_name">
+  <label class="ashby-application-form-question-title" for="_systemfield_name">Name</label>
+  <input id="_systemfield_name" name="_systemfield_name" type="text" required></div></form>`; }, 900);</script>"""
+
+TABBED_ASHBY = """<div role="tablist"><button role="tab">Overview</button><button role="tab" id="t">Application</button></div>
+<div id="root"></div><script>document.getElementById('t').addEventListener('click', () => {
+  document.getElementById('root').innerHTML = `<div class="ashby-application-form-field-entry" data-field-path="q1">
+  <label class="ashby-application-form-question-title" for="q1">Email</label><input id="q1" type="email"></div>`; });</script>"""
+
+
+def test_form_rendered_after_load_is_waited_for(page):
+    from src.forms import wait_for_form
+    page.set_content(LATE_ASHBY)
+    assert read_questions(page, "ashby", load_options=False) == []          # the bug: read too early
+    assert wait_for_form(page, "ashby", timeout_ms=5000) == 2
+    assert [q.label for q in read_questions(page, "ashby", load_options=False)] == ["Email", "Name"]
+
+
+def test_ashby_overview_tab_switches_to_application(page):
+    from src.forms import wait_for_form
+    page.set_content(TABBED_ASHBY)
+    assert wait_for_form(page, "ashby", timeout_ms=1500) == 1
+
+
+def test_no_form_returns_zero_instead_of_hanging(page):
+    from src.forms import wait_for_form
+    page.set_content("<p>This job is no longer accepting applications.</p>")
+    assert wait_for_form(page, "ashby", timeout_ms=800) == 0
+
+
+def test_greenhouse_company_site_jobs_use_the_embed_form():
+    from src.forms import job_form
+    own_site = {"id": "greenhouse:datadog:8267546", "source": "greenhouse",
+                "url": "https://careers.datadoghq.com/detail/8267546/?gh_jid=8267546"}
+    assert job_form(own_site) == ("https://job-boards.greenhouse.io/embed/job_app?for=datadog&token=8267546", "greenhouse")
+    hosted = {"id": "greenhouse:arizeai:1", "source": "greenhouse", "url": "https://job-boards.greenhouse.io/arizeai/jobs/1"}
+    assert job_form(hosted) == ("https://job-boards.greenhouse.io/arizeai/jobs/1", "greenhouse")
+    ashby = {"id": "ashby:modal:x", "source": "ashby", "url": "https://jobs.ashbyhq.com/modal/x"}
+    assert job_form(ashby) == ("https://jobs.ashbyhq.com/modal/x/application", "ashby")
+
+
+def test_readers_return_nothing_when_page_has_no_form(page):
+    page.set_content("<p>Job closed</p>")
+    assert read_questions(page, "greenhouse", load_options=False) == []
+    assert read_questions(page, "lever", load_options=False) == []

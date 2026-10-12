@@ -18,7 +18,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from src.answers import ANSWERED, SKIPPED, UNVERIFIED, AnswerBank, Match, load_bank, match_form, profile_tokens
-from src.forms import (ats_of, block_submits, detect_captcha, fill, form_url, hand_over, highlight,
+from src.forms import (job_form, wait_for_form, block_submits, detect_captcha, fill, hand_over, highlight,
                        read_questions, snapshot)
 from src.gates import blockers, check_config, evaluate, qualifies
 from src.pipeline import output_base
@@ -108,7 +108,7 @@ def queue_jobs(cfg: dict, store: Store, job_ids: list[str] | None = None, echo=p
 
 
 def _queue_one(browser, job, store: Store, bank: AnswerBank, acfg: dict) -> dict:
-    url, ats = form_url(job["url"]), ats_of(job["url"])
+    url, ats = job_form(job)
     pdf = verified_pdf(job)
     res = {"job_id": job["id"], "company": job["company"], "title": job["title"], "ats": ats, "form_url": url}
     if ats is None:
@@ -119,6 +119,8 @@ def _queue_one(browser, job, store: Store, bank: AnswerBank, acfg: dict) -> dict
     try:
         page.goto(url, wait_until="networkidle", timeout=60000)
         block_submits(page)
+        if not wait_for_form(page, ats):
+            res["error"] = "no form fields appeared within 20s (closed posting or unknown layout)"
         questions = read_questions(page, ats)
         captcha = detect_captcha(page, requested)
     except Exception as e:      # noqa: BLE001 — a page that won't load is reported, not fatal
@@ -154,7 +156,7 @@ def _queue_one(browser, job, store: Store, bank: AnswerBank, acfg: dict) -> dict
 
 
 def _queue_line(r: dict) -> str:
-    if "error" in r and "questions" not in r:
+    if "error" in r:
         return f"  ! {r['company']}: {r['error']}"
     head = f"  {r['company'][:14]:14s} {r['title'][:36]:36s} {r['ats']:10s} {r['answered']:2d}/{r['questions']:<2d} answered"
     shadow = "would qualify" if r["shadow_qualified"] else "review only"
@@ -221,7 +223,7 @@ def review(cfg: dict, store: Store, job_id: str | None = None, echo=print, ask=i
     pdf = verified_pdf(job)
     bank = _bank(load_master(ROOT / "data" / "master_resume.yaml"))
     bank.tokens["@resume"] = str(pdf) if pdf else None
-    url, ats = form_url(job["url"]), ats_of(job["url"])
+    url, ats = job_form(job)
     echo(f"Opening {job['company']} — {job['title']}\n  {url}")
     if not pdf:
         echo("  ! no verified PDF for this job; the resume field will be left for you")
@@ -233,6 +235,13 @@ def review(cfg: dict, store: Store, job_id: str | None = None, echo=print, ask=i
         page.expose_binding("__jaOnSubmitPy", lambda source, values: captured.update(values=values, at=_now()))
         page.goto(url, wait_until="networkidle", timeout=60000)
         block_submits(page)
+        if not wait_for_form(page, ats):
+            # Never hand over an empty "0/0" form: say what happened and record nothing.
+            echo("  ! No form fields appeared within 20s. The posting may be closed or the page layout changed; "
+                 "nothing was filled or recorded. Open the link yourself to check.")
+            log_event({"event": "form_not_found", "job_id": job_id, "company": job["company"], "url": page.url})
+            browser.close()
+            return None
         questions = read_questions(page, ats)
         matches = match_form(questions, bank)
         by_key = {q.key: q for q in questions}

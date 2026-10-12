@@ -171,7 +171,11 @@ def match_question(q, bank: AnswerBank) -> Match:
         offered = {normalize(o): o for o in options}
         hit = next((offered[normalize(a)] for a in alternatives if normalize(str(a)) in offered), None)
         if hit is None:
-            m.status, m.detail = NO_OPTION, f"bank answer {alternatives} not among options {options}"
+            shown = options[:8] + ([f"... {len(options) - 8} more"] if len(options) > 8 else [])
+            close = [o for o in options if any(normalize(str(a)) and normalize(str(a)) in normalize(o)
+                                               for a in alternatives)][:3]
+            m.status, m.detail = NO_OPTION, (f"bank answer {alternatives} not among options {shown}"
+                                             + (f"; closest offered: {close}" if close else ""))
         else:
             m.status, m.value = ANSWERED, hit
         return m
