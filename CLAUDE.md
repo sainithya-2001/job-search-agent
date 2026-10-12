@@ -133,6 +133,7 @@ job-agent/
 ### Phase 6 — Evals + deploy
 - evals/run_evals.py: compare agent fit scores to her hand labels (agreement %, mean absolute error, confusion on apply/skip). Run before/after any prompt change.
 - Dockerfile + GitHub Actions workflow on a weekday schedule running search + score + log.
+- Local schedule (done 2026-10-12): Windows Task Scheduler task "JobAgentDaily" runs run_daily.ps1 (`main.py run` with .venv Python) weekdays 8:00 AM as Nithya (interactive logon), runs as soon as possible after a missed start, 1-hour limit; output in logs\scheduled_*.log. `run_daily.ps1 -DryRun` checks the setup at no cost.
 - README: architecture diagram, eval results, demo GIF.
 
 ## Rules for Claude Code
