@@ -71,13 +71,14 @@ job-agent/
     gates.py             # shadow-mode auto-submit gates (no submit code)
     apply.py             # queue + review (pre-fill, hand over, log outcome) + confirm
     agent.py             # tool-use loop wiring the above as tools
+    digest.py            # daily digest (Tier A / Tier B) after each run
   templates/resume.html.j2
   output/resumes/
   evals/
     labeled_jobs.csv     # 50 jobs Nithya scored by hand
     run_evals.py
   tests/
-  main.py                # CLI: search | score | tailor | run | queue | review | apply <job_id> | confirm | sheets-sync
+  main.py                # CLI: search | score | tailor | run | digest | queue | review | apply <job_id> | confirm | sheets-sync
 ```
 
 ## Phases
@@ -117,6 +118,7 @@ job-agent/
 - Log every tool call (name, args, latency, tokens, cost) to logs/.
 - Tailoring order (scorer.tailor_order, enforced in tailor_resume): the result ranking with its freshness preference, plus a sponsorship-"yes" job goes ahead of a non-"yes" job scoring up to 3 points higher (ranking.sponsorship_preference_points), except it never moves an older job ahead of a fresh one.
 - Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 65 (>= 58 for jobs posted 0-3 days ago: agent.tailor_min_score_fresh) and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
+- After each run: queue the jobs tailored today (headless form read, review mode) and write output/digest_YYYY-MM-DD.md (src/digest.py; `python main.py digest [--date]` rebuilds it): run stats for the day from logs/ (searched, filtered out, passed, new, scored, tailored, JSearch requests, run cost); Tier A = up to 5 jobs tailored today, ranked (fit, freshness, company tier, one-line reason, queue status, link; more than 5 = an overflow line only); Tier B = the next 10 ranked untailored jobs with fit >= 50 (not applied/skipped) with fit, freshness, reason, link, the approved summary that fits (or none), and why it wasn't tailored. Limits in config.yaml `digest`.
 - Done when: python main.py run does a full daily cycle autonomously up to (not including) applying.
 
 ### Phase 5 — Log + apply (review mode)

@@ -147,7 +147,8 @@ class Toolbox:
 
         res = run_search(self.cfg, self.store)
         return ToolOutput({"fetched": res.fetched, "passed_filters": res.kept, "new_jobs": len(res.new),
-                           "unscored_in_db": len(self.store.unscored_jobs()), "board_errors": len(res.errors)})
+                           "unscored_in_db": len(self.store.unscored_jobs()), "board_errors": len(res.errors),
+                           "jsearch_requests": res.js_requests})
 
     def score_jobs(self, state: RunState, limit: int | None = None) -> ToolOutput:
         from src.resume import load_master, profile_text

@@ -30,6 +30,12 @@ scoring:
       - {name: ai_engineer,        families: [ai_engineer],                    n: 5}
 
 # Phase 4: `python main.py run` (daily agent loop). Every limit here is enforced in code, not by the prompt.
+digest:                      # output/digest_YYYY-MM-DD.md after each run (python main.py digest to rebuild)
+  tier_a_max: 5              # jobs tailored today, ranked; never more than 5 listed per day
+  tier_b_max: 10             # next ranked untailored jobs
+  tier_b_min_score: 50
+  queue_after_run: true      # read today's tailored jobs' forms headlessly (no LLM, nothing filled or submitted)
+
 agent:
   tier: fast                    # model that drives the loop (cheap: it only picks tools; scoring/tailoring use their own tiers)
   max_run_cost_usd: 0.50        # hard cap for the whole run: model turns + scoring + tailoring

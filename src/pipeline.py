@@ -262,7 +262,7 @@ def tailor_and_publish(job, store: Store, ctx: TailorContext, llm, cfg: dict, bu
             rep = base.parent / (base.name + "_verification.md")
             rep.write_text(rep.read_text(encoding="utf-8") + "\n" +
                            resume_section(resume_coverage(resume_text(html), cov, ctx.master)), encoding="utf-8")
-        store.set_status(job["id"], "tailored")
+        store.mark_tailored(job["id"])
         return TailorOutcome(res, files, pages, cuts)
     (OUT_DIR / (base.name + "_verification.md")).write_text(report, encoding="utf-8")
     if res.resume is not None:

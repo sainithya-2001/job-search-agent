@@ -290,6 +290,45 @@ def cmd_run(args) -> None:
     print()
     print(report)
     print(f"Logs: {log.path.relative_to(ROOT)}, {summary_path.relative_to(ROOT)}")
+    if cfg["digest"].get("queue_after_run"):
+        _queue_today(cfg, store)
+    _write_digest(cfg, store)
+    store.close()
+
+
+def _queue_today(cfg: dict, store: Store) -> None:
+    """Read the forms of jobs tailored today that aren't queued yet (headless; no LLM; nothing filled/submitted)."""
+    from datetime import date
+
+    from src.apply import queue_jobs
+    from src.digest import _local_day
+
+    queued = {r["job_id"] for r in store.conn.execute("SELECT job_id FROM apply_queue")}
+    ids = [r["id"] for r in store.jobs_by_status("tailored")
+           if _local_day(r["tailored_at"]) == date.today() and r["id"] not in queued]
+    if not ids:
+        return
+    print(f"\nQueueing {len(ids)} job(s) tailored today (reading forms headlessly)...")
+    try:
+        queue_jobs(cfg, store, ids)
+    except Exception as e:  # noqa: BLE001 — the digest still gets written; `queue` can be rerun by hand
+        print(f"  ! queue failed: {type(e).__name__}: {e}")
+
+
+def _write_digest(cfg: dict, store: Store, day=None) -> None:
+    from src.digest import write
+    from src.resume import load_master
+
+    path = write(store, cfg, load_master(ROOT / "data" / "master_resume.yaml"), day)
+    print(f"Digest: {path.relative_to(ROOT)}")
+
+
+def cmd_digest(args) -> None:
+    from datetime import date
+
+    cfg = load_config()
+    store = Store(ROOT / "data" / "jobs.db")
+    _write_digest(cfg, store, date.fromisoformat(args.date) if args.date else None)
     store.close()
 
 
@@ -428,6 +467,9 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run", help="Daily agent cycle: search, score, tailor 65+ (never applies)")
     p.add_argument("--dry-run", action="store_true", help="plan and estimate cost; no LLM calls, no DB writes")
     p.set_defaults(func=cmd_run)
+    p = sub.add_parser("digest", help="Write output/digest_YYYY-MM-DD.md (Tier A tailored today, Tier B next 10)")
+    p.add_argument("--date", help="YYYY-MM-DD (default: today)")
+    p.set_defaults(func=cmd_digest)
     p = sub.add_parser("keywords", help="ATS keyword coverage of tailored resumes (read-only; extraction is cached)")
     p.add_argument("job_ids", nargs="*")
     p.add_argument("--run", action="store_true", help="spend the (estimated) extraction cost and check coverage")
