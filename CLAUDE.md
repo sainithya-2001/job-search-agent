@@ -24,7 +24,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
 - Postings that require US citizenship ("must be a US citizen", "US citizens only") or a security clearance
 - Sponsorship statements ("no sponsorship", "must be authorized to work without sponsorship") are NOT excluded (2026-10-11)
 - Export-control / US-person requirements: "export controlled", ITAR, EAR, "U.S. person", "permanent resident", "green card" (except positive mentions like "green card sponsorship")
-- Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps, network operations, chip design, hardware, mobile, iOS, Android (even with AI in the title); Staff, Principal, Lead, Director, VP, Head of, Engineering Manager. Senior is kept. Other "Manager" titles pass only if they match a role family (program_product_manager).
+- Titles: frontend, full-stack, infrastructure, platform, security/AppSec, systems engineer, SRE, DevOps, network operations, chip design, hardware, mobile, iOS, Android, electrical, and non-US regions in the title (EMEA, APAC, LATAM, EU, UK) (even with AI in the title); Staff, Principal, Lead, Director, VP, Head of, Engineering Manager. Senior is kept. Other "Manager" titles pass only if they match a role family (program_product_manager).
 - Duplicates (same company + normalized title)
 - Postings older than 14 days (filters.max_posting_age_days). Jobs with no reliable date are kept and treated as 4-14 days old (not fresh).
 
@@ -114,7 +114,7 @@ job-agent/
 - Expose search_jobs, score_job, tailor_resume, log_application as tools. Write a plain tool-use loop (no framework) so the loop is readable. Add tool-calling to the src/llm.py interface so the loop stays provider-neutral.
 - Log every tool call (name, args, latency, tokens, cost) to logs/.
 - Tailoring order (scorer.tailor_order, enforced in tailor_resume): the result ranking with its freshness preference, plus a sponsorship-"yes" job goes ahead of a non-"yes" job scoring up to 3 points higher (ranking.sponsorship_preference_points), except it never moves an older job ahead of a fresh one.
-- Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 65 and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
+- Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 65 (>= 58 for jobs posted 0-3 days ago: agent.tailor_min_score_fresh) and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
 - Done when: python main.py run does a full daily cycle autonomously up to (not including) applying.
 
 ### Phase 5 — Log + apply (review mode)
