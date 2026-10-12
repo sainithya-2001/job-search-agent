@@ -98,3 +98,21 @@ def test_prompt_lists_have_and_dont_have():
     cov = match([kw("ELT"), kw("Kubernetes")], MASTER, TEXTS, TECH)
     lines = "\n".join(keyword_lines(cov, SimpleNamespace(equiv_notes=["ETL/ELT may also be written as ELT"])))
     assert "skill id sk_etl" in lines and "DON'T HAVE (never claim): 'Kubernetes'" in lines
+
+
+def test_soft_skills_ignored_for_coverage():
+    from main import load_config
+    pats = load_config()["tailoring"]["keyword_soft_skill_patterns"]
+    cov = match([kw("Python"), kw("communication skills", 2, "method"), kw("problem solving", 2, "method"),
+                 kw("cross-functional teams", 2, "method"), kw("customer-obsessed", 1, "method"),
+                 kw("stakeholder collaboration", 2, "method")], MASTER, TEXTS, TECH, pats)
+    assert [m.keyword.text for m in cov.matches] == ["Python", "stakeholder collaboration"]
+    assert set(cov.ignored) == {"communication skills", "problem solving", "cross-functional teams", "customer-obsessed"}
+    assert "Ignored as soft skills" in report_section(cov)
+
+
+def test_approved_synonyms_in_master_shape():
+    # aliases/covers are lists on the skill; ML-style aliases work as same-skill wording
+    m = {"skills": [{"id": "sk_ml", "name": "Machine learning", "aliases": ["ML"], "covers": ["AI/ML"]}]}
+    cov = match([kw("ML"), kw("AI/ML")], m, {}, {})
+    assert [x.display for x in cov.matches] == ["ML", "Machine learning (AI/ML)"]

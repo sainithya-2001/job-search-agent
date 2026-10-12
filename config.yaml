@@ -82,6 +82,26 @@ tailoring:
   preferences:
     - {prefer: exp_univ_b01, over: exp_univ_b03, why: "stronger bullet first"}
   tier: strong               # model tier for drafting and for the LLM fact-check
+  # ATS keywords (src/keywords.py): extracted keywords matching any of these are soft skills / filler. They are
+  # ignored for coverage and never steer the draft. Applied at match time, so edits here need no re-extraction.
+  keyword_soft_skill_patterns:
+    - '\bcommunication\b'
+    - '\bproblem[- ]solving\b'
+    - '\bteam ?(player|work)\b'
+    - '\bcross[- ]functional(ly)?\b'
+    - '\bcustomer[- ](obsessed|focused|centric|obsession)\b'
+    - '\bsolution[- ]driven\b'
+    - '\bself[- ]starter\b'
+    - '\b(attention to detail|detail[- ]oriented)\b'
+    - '\bfast[- ]paced\b'
+    - '\bambigu(ous|ity)\b'
+    - '\b(competing deadlines|time management|prioritiz\w*|multi-?task\w*)\b'
+    - '\b(analytical|critical|strategic) thinking\b'
+    - '\b(curiosity|curious|passion\w*|growth mindset|work ethic|proactive|adaptab\w*|interpersonal)\b'
+    - '\binfluenc\w* (stakeholders|others)\b'
+    - '\bhandling multiple\b'
+    - '\bproduct instincts?\b'
+    - '\b(uncover|actionable) (key )?(insights|strategies)\b'
   max_attempts: 3            # drafts per job before unsupported bullets are removed
   max_run_cost_usd: 0.75     # per `python main.py tailor` run, across all jobs in it
   # Output tokens assumed per call for the estimate (includes thinking).

@@ -200,7 +200,8 @@ def job_coverage(store: Store, job, ctx: TailorContext, llm=None, cfg: dict | No
         if llm is None:
             return None, None
         kws, resp = get_keywords(store, job, llm, (cfg or {}).get("tailoring", {}).get("keyword_tier", "fast"))
-    return match(kws, ctx.master, ctx.texts, ctx.tech), resp
+    soft = (cfg or {}).get("tailoring", {}).get("keyword_soft_skill_patterns", [])
+    return match(kws, ctx.master, ctx.texts, ctx.tech, soft), resp
 
 
 def resume_text(html: str) -> str:

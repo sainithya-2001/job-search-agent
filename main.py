@@ -236,7 +236,7 @@ def cmd_render(args) -> None:
             print(f"  ! {job['company']}: saved resume no longer passes current rules ({len(recheck.issues)} issue(s)); "
                   f"re-run `tailor`")
             continue
-        cov, _ = job_coverage(store, job, ctx)            # cached keywords only: re-rendering never calls the API
+        cov, _ = job_coverage(store, job, ctx, None, cfg)  # cached keywords only: re-rendering never calls the API
         files, _, _ = publish(tr, ctx.master, verifier, base, report, args.pdf, cov.wording() if cov else None)
         print(f"  {job['company'][:16]:16s} -> {', '.join(files)}")
     store.close()

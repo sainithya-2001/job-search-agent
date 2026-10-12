@@ -105,6 +105,7 @@ class KeywordMatch:
 @dataclass
 class Coverage:
     matches: list[KeywordMatch] = field(default_factory=list)
+    ignored: list[str] = field(default_factory=list)      # soft skills / filler dropped before matching
 
     @property
     def have(self) -> list[KeywordMatch]:
@@ -127,9 +128,20 @@ class Coverage:
         return out
 
 
-def match(keywords: list[Keyword], master: dict, texts: dict[str, str], tech: dict[str, list[str]]) -> Coverage:
+def split_soft(keywords: list[Keyword], patterns: list[str]) -> tuple[list[Keyword], list[str]]:
+    """-> (keywords to match, soft-skill keywords ignored)."""
+    rx = [re.compile(p, re.I) for p in patterns or []]
+    keep, soft = [], []
+    for k in keywords:
+        (soft.append(k.text) if any(r.search(k.text) for r in rx) else keep.append(k))
+    return keep, soft
+
+
+def match(keywords: list[Keyword], master: dict, texts: dict[str, str], tech: dict[str, list[str]],
+          soft_patterns: list[str] | None = None) -> Coverage:
     skills = master["skills"]
-    cov = Coverage()
+    keywords, soft = split_soft(keywords, soft_patterns or [])
+    cov = Coverage(ignored=soft)
     for kw in keywords:
         k = norm(kw.text)
         m = KeywordMatch(kw, False)
@@ -180,6 +192,8 @@ def equivalents(master: dict) -> list[tuple[set[str], set[str]]]:
 def report_section(cov: Coverage, title: str = "Keyword coverage (ATS)") -> str:
     lines = [f"## {title}", "", f"**{len(cov.have)} of {len(cov.matches)} keywords covered ({cov.percent}%)**", "",
              "| Keyword (posting's wording) | Importance | You have it? | How |", "|---|---|---|---|"]
+    if cov.ignored:
+        lines.insert(3, f"Ignored as soft skills / filler: {', '.join(cov.ignored)}\n")
     for m in cov.matches:
         how = m.how + (f" ({m.skill_id or m.source_id})" if (m.skill_id or m.source_id) else "")
         lines.append(f"| {m.keyword.text} | {m.keyword.importance} | {'yes' if m.have else 'no'} | "
@@ -194,6 +208,7 @@ class ResumeCoverage:
     not_shown: list[str]           # you have it (master_resume.yaml) but this resume doesn't show it
     missing: list[str]             # not in master_resume.yaml
     hints: list[str]
+    ignored: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -207,7 +222,7 @@ def resume_coverage(resume_text: str, cov: Coverage, master: dict) -> ResumeCove
     """Read-only: which of the job's keywords this already-rendered resume actually shows."""
     text = norm(resume_text)
     names = {s["id"]: s for s in master["skills"]}
-    out = ResumeCoverage([], [], [], [], [])
+    out = ResumeCoverage([], [], [], [], [], list(cov.ignored))
     for m in cov.matches:
         kw = m.keyword.text
         if _contains(text, norm(kw)):
@@ -232,7 +247,8 @@ def resume_section(rc: ResumeCoverage) -> str:
              "Covered: " + (", ".join(rc.exact) or "none"),
              "", "In other words: " + (", ".join(rc.synonym) or "none"),
              "", "Not shown: " + (", ".join(rc.not_shown) or "none"),
-             "", "Don't have: " + (", ".join(rc.missing) or "none")]
+             "", "Don't have: " + (", ".join(rc.missing) or "none"),
+             "", "Ignored as soft skills / filler: " + (", ".join(rc.ignored) or "none")]
     if rc.hints:
         lines += ["", "Possible synonyms to approve:"] + [f"- {h}" for h in rc.hints]
     return "\n".join(lines) + "\n"
