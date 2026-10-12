@@ -296,9 +296,8 @@ def cmd_run(args) -> None:
 def cmd_keywords(args) -> None:
     """Read-only ATS keyword coverage for tailored resumes (no re-tailoring). Keyword extraction is the only paid
     step (fast tier, cached per job); without --run this only prints its estimated cost."""
-    import re as _re
     from src.keywords import EXTRACT_SYSTEM, ESTIMATE_OUTPUT_TOKENS, cached, extract_prompt, resume_coverage, \
-        report_section, resume_section
+        report_section, resume_section, strip_coverage
     from src.llm import cost_usd, estimate_tokens, get_llm
     from src.pipeline import job_coverage, output_base, resume_text, tailor_context
 
@@ -331,7 +330,7 @@ def cmd_keywords(args) -> None:
         rc = resume_coverage(resume_text(base.with_suffix(".html").read_text(encoding="utf-8")), cov, ctx.master)
         rep = base.parent / (base.name + "_verification.md")
         old = rep.read_text(encoding="utf-8") if rep.exists() else ""
-        old = _re.split(r"\n## Keyword coverage \(ATS\)", old)[0].rstrip() + "\n"     # replace an earlier section
+        old = strip_coverage(old)          # replace earlier coverage sections; keep every other section
         rep.write_text(old + "\n" + report_section(cov) + "\n" + resume_section(rc), encoding="utf-8")
         print(f"{j['company'][:14]:14s} {j['title'][:40]:40s} {f'{len(rc.exact)}/{rc.total}':>6s} "
               f"{len(rc.synonym):>11d} {len(rc.not_shown):>9d} {len(rc.missing):>7d}   ({rc.pct(len(rc.exact))}%)")

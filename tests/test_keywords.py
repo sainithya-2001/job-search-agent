@@ -116,3 +116,18 @@ def test_approved_synonyms_in_master_shape():
     m = {"skills": [{"id": "sk_ml", "name": "Machine learning", "aliases": ["ML"], "covers": ["AI/ML"]}]}
     cov = match([kw("ML"), kw("AI/ML")], m, {}, {})
     assert [x.display for x in cov.matches] == ["ML", "Machine learning (AI/ML)"]
+
+
+def test_strip_coverage_keeps_other_sections():
+    from src.keywords import strip_coverage
+    rep = ("# Report\n\n## Every claim, checked\nrows\n\n## Keyword coverage (ATS)\nold\n\n## One-page fitting (content cut)\n"
+           "- cut x\n\n## Keyword coverage (ATS) — read-only check of this resume\nold2\n\n## Post-verification edit\n- y\n")
+    out = strip_coverage(rep)
+    assert "old" not in out and "## One-page fitting" in out and "- cut x" in out and "## Post-verification edit" in out
+
+
+def test_resume_coverage_counts_alias_display_as_shown():
+    m = {"skills": [{"id": "sk_eval", "name": "Evaluation frameworks", "aliases": ["evals", "evaluations"]}]}
+    cov = match([kw("evals"), kw("evaluations")], m, {}, {})
+    rc = resume_coverage("Skills: evals, Python", cov, m)
+    assert rc.exact == ["evals"] and rc.synonym == ["evaluations (shown as evals)"] and rc.not_shown == []

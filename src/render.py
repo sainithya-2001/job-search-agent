@@ -49,7 +49,10 @@ def view_model(tr: TailoredResume, master: dict, summary: str, wording: dict[str
     proj = {p["id"]: p for p in master["projects"]}
     c = master["contact"]
     head = [tr.headline.role_label] if tr.headline.role_label else []
-    head += [skills[s] for s in tr.headline.skill_ids if s in skills]
+    # Headline space is tight: a "Name (broader term)" display is shown as just the name there (the skills section
+    # still shows the broader term), so the headline stays on one line.
+    head += [skills[s].split(" (")[0] if s in (wording or {}) and skills[s].endswith(")") else skills[s]
+             for s in tr.headline.skill_ids if s in skills]
     education = []
     for ed in master["education"]:
         cw = ed.get("coursework") or {}

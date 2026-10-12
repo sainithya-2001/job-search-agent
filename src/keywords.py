@@ -231,11 +231,22 @@ def resume_coverage(resume_text: str, cov: Coverage, master: dict) -> ResumeCove
             out.missing.append(kw)
             if m.hint:
                 out.hints.append(f"{kw}: {m.hint}")
-        elif m.skill_id and _contains(text, norm(names[m.skill_id]["name"])):
-            out.synonym.append(f"{kw} (shown as {names[m.skill_id]['name']})")
+        elif m.skill_id and (shown := next((w for w in [names[m.skill_id]["name"], *(names[m.skill_id].get("aliases") or []),
+                                                        *(names[m.skill_id].get("covers") or [])]
+                                            if _contains(text, norm(w))), None)):
+            # the skill is on the resume under another of its approved wordings (e.g. "evals" for "evaluations")
+            out.synonym.append(f"{kw} (shown as {shown})")
         else:
             out.not_shown.append(kw)
     return out
+
+
+def strip_coverage(report: str) -> str:
+    """Remove earlier keyword-coverage sections from a verification report, keeping every other section
+    (one-page cuts, post-verification edits) intact."""
+    parts = re.split(r"(?m)^(?=## )", report)
+    kept = [p for p in parts if not p.startswith("## Keyword coverage (ATS)")]
+    return "".join(kept).rstrip() + "\n"
 
 
 def resume_section(rc: ResumeCoverage) -> str:
