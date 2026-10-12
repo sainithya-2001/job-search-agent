@@ -23,3 +23,7 @@ data/uscis/
 # Phase 5: personal answers and Google credentials
 data/answer_bank.yaml
 data/google_service_account.json
+
+# eval caches (re-creatable)
+evals/.summaries.json
+evals/.eval_scores.json
