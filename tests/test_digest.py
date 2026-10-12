@@ -303,3 +303,10 @@ def test_contract_roles_labelled_not_ranked_lower(store, cfg):
     assert [r["id"] for r in rows] == ["j2", "j1"]                  # fit order unchanged
     md = build(store, cfg, MASTER, TODAY, NOW)
     assert "AI Engineer 2 [contract]" in md and "AI Engineer 1 [" not in md
+
+
+def test_tier_a_shows_skip_decision_instead_of_todo(store, cfg):
+    add(store, 1, 80, status="tailored")
+    store.upsert_application({"job_id": "j1", "status": "skipped", "notes": "Weak fit: requires 5+ years"})
+    row = build(store, cfg, MASTER, TODAY, NOW).split("## Tier B")[0].split("Co1")[1].splitlines()[0]
+    assert "skipped: Weak fit: requires 5+ years" in row and "not queued yet" not in row

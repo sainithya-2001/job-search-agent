@@ -166,9 +166,12 @@ def build(store: Store, cfg: dict, master: dict, day: date | None = None, now: d
     if a_rows:
         L += ["| # | Fit | Freshness | Company (tier) | Role | Why | Apply / queue | Link |", "|---|---|---|---|---|---|---|---|"]
         for i, r in enumerate(a_rows, 1):
-            q, route = queue.get(r["id"]), apply_route(r)
-            qs = route or (f"queued, {q['answered']}/{q['total']} answered" if q and _local_day(q["queued_at"]) == day
-                           else "not queued yet")
+            q, route, app = queue.get(r["id"]), apply_route(r), store.application(r["id"])
+            if app and app["status"] in CLOSED:          # already decided: show the decision, not a to-do
+                qs = app["status"] + (f": {_cell(app['notes'])}" if app["notes"] else "")
+            else:
+                qs = route or (f"queued, {q['answered']}/{q['total']} answered"
+                               if q and _local_day(q["queued_at"]) == day else "not queued yet")
             L.append(f"| {i} | {r['fit_score']} | {_freshness(r, cfg, now)} | {_cell(r['company'])} "
                      f"({tiers.get(r['company'], 'unknown')}) | {_role(r)} | {_cell(r['one_line_reason'])} | "
                      f"{qs} | [posting]({r['url']}) |")
