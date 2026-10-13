@@ -54,8 +54,8 @@ CREATE TABLE IF NOT EXISTS scores (
     scored_at          TEXT NOT NULL
 );
 
--- Application log, one row per job, upserted by the agent's log_application tool. Same columns as the
--- Phase 5 Google Sheet, so sheets.py only has to sync this table. The agent may write status 'to_review' or
+-- Application log, one row per job, upserted by the agent's log_application tool. src/notion.py syncs this
+-- table to the Notion "Applications" database. The agent may write status 'to_review' or
 -- 'skipped' only; 'applied' is set after Nithya submits and confirms (Phase 5), never by the agent.
 CREATE TABLE IF NOT EXISTS applications (
     job_id         TEXT PRIMARY KEY REFERENCES jobs(id),
@@ -114,6 +114,16 @@ CREATE TABLE IF NOT EXISTS jsearch_requests (
     results          INTEGER,                  -- jobs returned by this page
     quota_remaining  INTEGER,                  -- RapidAPI x-ratelimit-requests-remaining, when sent
     quota_limit      INTEGER                   -- RapidAPI x-ratelimit-requests-limit
+);
+
+-- Notion sync state per application (src/notion.py): what was last written to / read from the Notion page, so a
+-- Status change made in Notion can be told apart from one made here.
+CREATE TABLE IF NOT EXISTS notion_sync (
+    job_id     TEXT PRIMARY KEY REFERENCES applications(job_id),
+    page_id    TEXT NOT NULL,
+    status     TEXT NOT NULL,                  -- Status on the page after the last sync
+    pushed     TEXT NOT NULL,                  -- hash of the properties last written from jobs.db
+    synced_at  TEXT NOT NULL
 );
 """
 
@@ -268,7 +278,7 @@ class Store:
                               (note if note.startswith("closed") else f"closed: {note}", now, job_id))
             self.conn.execute("UPDATE applications SET status='closed', updated_at=?, "
                               "notes=COALESCE(notes || ' | ', '') || ? WHERE job_id=? AND status NOT IN "
-                              "('applied', 'skipped')", (now, f"Posting closed: {note}", job_id))
+                              "('applied', 'skipped', 'interviewing', 'offer', 'rejected')", (now, f"Posting closed: {note}", job_id))
 
     def mark_tailored(self, job_id: str, when: str | None = None) -> None:
         with self.conn:

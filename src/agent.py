@@ -54,8 +54,8 @@ TOOLS = [
              "tailor_candidates are allowed. Returns PASS/FAIL, the PDF file, and the cost.",
              {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"],
               "additionalProperties": False}),
-    ToolSpec("log_application", "Record a job in the application log for Nithya's review (synced to Google Sheets "
-             "in Phase 5). Does not apply.",
+    ToolSpec("log_application", "Record a job in the application log for Nithya's review (synced to Notion "
+             "after the run). Does not apply.",
              {"type": "object", "properties": {
                  "job_id": {"type": "string"},
                  "status": {"type": "string", "enum": ["to_review", "skipped"]},
@@ -283,7 +283,7 @@ class Toolbox:
                           r.input_tokens, r.output_tokens, r.cost)
 
     def log_application(self, state: RunState, job_id: str, status: str, notes: str = "") -> ToolOutput:
-        from src.apply import application_fields
+        from src.apply import DONE, application_fields
 
         if status not in ("to_review", "skipped"):        # 'applied' is only ever set by Nithya (Phase 5)
             raise ToolError(f"status must be to_review or skipped, not {status!r}")
@@ -291,7 +291,7 @@ class Toolbox:
         if fields is None:
             raise ToolError(f"unknown job_id {job_id!r}")
         prev = self.store.application(job_id)
-        if prev and prev["status"] in ("queued", "applied", "skipped"):   # never move a reviewed job backwards
+        if prev and prev["status"] in ("queued",) + DONE:   # never move a reviewed job backwards
             return ToolOutput({"logged": job_id, "status": prev["status"], "note": "already further along"})
         self.store.upsert_application({**fields, "status": status, "notes": notes})
         return ToolOutput({"logged": job_id, "status": status})

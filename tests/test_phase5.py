@@ -1,6 +1,5 @@
 """Phase 5: answer-bank matching, shadow gates, form reading/filling (local HTML, no network), submit safeguards,
-review-outcome classification, Sheets upsert, and a scan proving there is no submit code."""
-import json
+review-outcome classification, and a scan proving there is no submit code."""
 import re
 from datetime import date
 from pathlib import Path
@@ -14,7 +13,6 @@ from src.apply import classify, confirm
 from src.forms import FormQuestion, SubmitRefused, block_submits, fill, hand_over, read_questions, safe_click, snapshot
 from src.gates import AutoSubmitNotSupported, check_config, evaluate, qualifies
 from src.models import Job
-from src.sheets import COLUMNS, rows_for, upsert
 from src.store import Store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -300,36 +298,6 @@ def test_confirm_manual_application_counts_for_cooldown(db):
     assert row["status"] == "applied" and row["review_outcome"] == "manual" and row["date_applied"]
     g = gates(history=[dict(r) for r in db.applications()], today=date.fromisoformat(row["date_applied"]))
     assert not g["company_limit"].passed           # j1 has no role family on record: counted as same family
-
-
-# ---- sheets -----------------------------------------------------------------------------------------------------
-class FakeWorksheet:
-    def __init__(self, values=None):
-        self.values = values or []
-        self.batches, self.appended = [], []
-
-    def get_all_values(self):
-        return self.values
-
-    def update(self, values, rng):
-        self.values = values + self.values[1:]
-
-    def batch_update(self, updates):
-        self.batches += updates
-
-    def append_rows(self, rows, value_input_option=None):
-        self.appended += rows
-
-
-def test_sheets_upsert_by_job_id(db):
-    confirm(db, "j1", applied=True)
-    db.upsert_application({"job_id": "j1", "status": "applied", "edited_fields": json.dumps(["Sponsorship"])})
-    rows = rows_for(db.applications())
-    assert rows[0][COLUMNS.index("notes")].startswith("edited: Sponsorship")
-    ws = FakeWorksheet()
-    assert upsert(ws, rows) == (0, 1) and ws.values[0] == COLUMNS
-    ws = FakeWorksheet([COLUMNS, ["j0"] + [""] * 14, ["j1"] + [""] * 14])
-    assert upsert(ws, rows) == (1, 0) and ws.batches[0]["range"] == "A3:O3"
 
 
 # ---- no submit code ---------------------------------------------------------------------------------------------

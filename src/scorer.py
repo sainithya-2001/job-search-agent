@@ -192,7 +192,7 @@ def is_stale(row, cfg: dict, now: datetime | None = None) -> bool:
 
 # Jobs already in the pipeline keep their place regardless of age (the review queue keeps them).
 PIPELINE_JOB_STATUSES = {"tailored"}
-PIPELINE_APP_STATUSES = {"queued", "to_review", "applied"}
+PIPELINE_APP_STATUSES = {"queued", "to_review", "applied", "interviewing", "offer", "rejected"}
 
 
 def hide_stale(rows: list, cfg: dict, now: datetime | None = None,

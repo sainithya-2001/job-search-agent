@@ -10,6 +10,7 @@ __pycache__/
 # generated data — never commit
 data/jobs.db
 data/*.db-journal
+data/backups/
 output/
 logs/
 

@@ -292,6 +292,9 @@ def cmd_run(args) -> None:
         print(plan(cfg, store, llm))
         store.close()
         return
+    _backup(cfg)
+    from src.notion import try_sync
+    print(try_sync(store))              # pull Status changes made in Notion before the run uses them
     log = RunLog()
     a = cfg["agent"]
     print(f"Agent run (model {llm.models[a.get('tier', 'fast')]}) | cap ${a['max_run_cost_usd']:.2f} | "
@@ -306,7 +309,16 @@ def cmd_run(args) -> None:
     if cfg["digest"].get("queue_after_run"):
         _queue_today(cfg, store)
     _write_digest(cfg, store)
+    print(try_sync(store))
     store.close()
+
+
+def _backup(cfg: dict) -> None:
+    from src.backup import backup_db
+
+    path, deleted = backup_db(ROOT / "data" / "jobs.db", ROOT / "data" / "backups", cfg["backup"]["keep_days"])
+    print(f"Backup: {path.relative_to(ROOT)}" + (f" ({len(deleted)} older than {cfg['backup']['keep_days']} days "
+                                                  f"deleted)" if deleted else ""))
 
 
 def _queue_today(cfg: dict, store: Store) -> None:
@@ -409,7 +421,7 @@ def cmd_answers_check(args) -> None:
 
 def cmd_queue(args) -> None:
     from src.apply import queue_jobs, queue_report
-    from src.sheets import try_sync
+    from src.notion import try_sync
 
     cfg = load_config()
     store = Store(ROOT / "data" / "jobs.db")
@@ -425,7 +437,7 @@ def cmd_queue(args) -> None:
 
 def cmd_review(args) -> None:
     from src.apply import review
-    from src.sheets import try_sync
+    from src.notion import try_sync
 
     cfg = load_config()
     store = Store(ROOT / "data" / "jobs.db")
@@ -437,7 +449,7 @@ def cmd_review(args) -> None:
 
 def cmd_confirm(args) -> None:
     from src.apply import confirm
-    from src.sheets import try_sync
+    from src.notion import try_sync
 
     store = Store(ROOT / "data" / "jobs.db")
     status = confirm(store, args.job_id, applied=args.applied, note=args.note or "")
@@ -448,7 +460,7 @@ def cmd_confirm(args) -> None:
 
 def cmd_close(args) -> None:
     from src.apply import close
-    from src.sheets import try_sync
+    from src.notion import try_sync
 
     store = Store(ROOT / "data" / "jobs.db")
     close(store, args.job_id, args.note or "")
@@ -457,8 +469,19 @@ def cmd_close(args) -> None:
     store.close()
 
 
-def cmd_sheets_sync(args) -> None:
-    from src.sheets import try_sync
+def cmd_status(args) -> None:
+    """Set an application's status by hand, e.g. interviewing / offer / rejected after you hear back."""
+    from src.apply import change_status
+    from src.notion import try_sync
+
+    store = Store(ROOT / "data" / "jobs.db")
+    print(f"{args.job_id}: {change_status(store, args.job_id, args.status, args.note or '')}")
+    print(try_sync(store))
+    store.close()
+
+
+def cmd_notion_sync(args) -> None:
+    from src.notion import try_sync
 
     store = Store(ROOT / "data" / "jobs.db")
     print(try_sync(store))
@@ -466,6 +489,8 @@ def cmd_sheets_sync(args) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from src.apply import STATUSES
+
     parser = argparse.ArgumentParser(prog="job-agent")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("search", help="Fetch boards, filter, save new jobs")
@@ -521,8 +546,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("job_id")
     p.add_argument("--note")
     p.set_defaults(func=cmd_close)
-    p = sub.add_parser("sheets-sync", help="Upsert the applications table into Google Sheets")
-    p.set_defaults(func=cmd_sheets_sync)
+    p = sub.add_parser("status", help="Set an application's status (e.g. interviewing, offer, rejected)")
+    p.add_argument("job_id")
+    p.add_argument("status", choices=STATUSES)
+    p.add_argument("--note")
+    p.set_defaults(func=cmd_status)
+    p = sub.add_parser("notion-sync", help="Sync the applications table with Notion (pulls Status changes back)")
+    p.set_defaults(func=cmd_notion_sync)
 
     args = parser.parse_args(argv)
     args.func(args)

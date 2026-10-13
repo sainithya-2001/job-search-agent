@@ -3,7 +3,7 @@
 You are helping Nithya build a job-search agent in Python. Build it phase by phase, in order. After each phase: run it, show the output, and explain the key design decisions in 3–5 bullets so she understands the architecture. Do not move to the next phase until the current one runs end to end.
 
 ## Goal
-Find relevant jobs she is eligible for, score them against her resume, tailor a resume per job (never inventing facts), log everything to Google Sheets, and pre-fill applications for her approval.
+Find relevant jobs she is eligible for, score them against her resume, tailor a resume per job (never inventing facts), log everything to Notion, and pre-fill applications for her approval.
 
 ## Target roles (in priority order)
 1. AI Engineer / Applied AI Engineer / GenAI Engineer (LLM applications)
@@ -36,7 +36,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
   - Alternate: Google Gemini via google-genai SDK, key GEMINI_API_KEY (switched away 2026-10-11: Google returned 403 "project denied access" on generation)
   - Switch by changing the one line `llm.provider` in config.yaml. No other code may import an LLM SDK directly.
 - pyyaml (master resume), jinja2 + playwright (resume PDF via headless Chromium; WeasyPrint dropped because it needs GTK system libraries on Windows)
-- gspread + Google service account (Sheets logging)
+- Notion API via plain httpx (application log; no Notion SDK, chosen 2026-10-12), key NOTION_TOKEN + NOTION_PARENT_PAGE_ID in .env. Replaced Google Sheets / gspread (2026-10-12).
 - playwright (form pre-fill, review mode only)
 - pytest (tests)
 - Config in config.yaml; secrets in .env (never committed; add to .gitignore)
@@ -65,7 +65,8 @@ job-agent/
     tailor.py            # select + rewrite bullets from master resume
     verify.py            # guardrail: every claim must trace to master_resume.yaml
     render.py            # YAML -> HTML -> PDF
-    sheets.py            # log to Google Sheets
+    notion.py            # sync the applications table to Notion (Status pulled back)
+    backup.py            # dated jobs.db backups in data/backups/
     answers.py           # answer bank + exact question matching
     forms.py             # read/fill/snapshot Greenhouse, Lever, Ashby forms; submit safeguards
     gates.py             # shadow-mode auto-submit gates (no submit code)
@@ -78,7 +79,7 @@ job-agent/
     labeled_jobs.csv     # 50 jobs Nithya scored by hand
     run_evals.py
   tests/
-  main.py                # CLI: search | score | tailor | run | digest | close | queue | review | apply <job_id> | confirm | sheets-sync
+  main.py                # CLI: search | score | tailor | run | digest | close | queue | review | apply <job_id> | confirm | status | notion-sync
 ```
 
 ## Phases
@@ -128,12 +129,13 @@ job-agent/
 - Never submit. No code clicks a submit control (safe_click refuses submit-like buttons) and submissions are blocked while the agent fills. Never touch LinkedIn/Indeed. Never attempt to solve or bypass a CAPTCHA.
 - Log for each application whether Nithya approved unchanged or edited (form snapshot after pre-fill vs at her Submit click; edited questions listed; edits to bank answers flagged).
 - Shadow-mode auto-submit gates (config.yaml `apply`, auto_submit: false; there is no submit code and true is rejected): record whether an application WOULD qualify: fit >= 70, Greenhouse or Lever, no CAPTCHA of any kind, every question matched exactly from the bank, no long-answer box (short text fields are fine if matched exactly), at most 5 per day, at most 2 applications per company in 90 days and only in different role families (manual ones included; an unknown role family counts as the same), verified one-page resume, posting open. Everything goes to the review queue regardless.
-- sheets.py: columns = job_id, date_found, company, role, location, url, fit_score, sponsorship, matched_skills, gaps, resume_file, status, date_applied, review_outcome, notes. Upsert by job id. SQLite `applications` is the source of truth; the sheet is synced from it.
-- Done when: one real application is pre-filled and the sheet row updates to "applied" after she confirms.
+- notion.py (replaced Google Sheets 2026-10-12): database "Applications" under the parent page (NOTION_PARENT_PAGE_ID), columns Company (title), Role, Family, Fit, Status (select: queued, applied, interviewing, offer, rejected, skipped, closed), Date applied, Days since applied (Notion formula), Resume file, Job link, Notes, plus Job ID (the upsert key). jobs.db is the source of truth; synced at the start and end of each `run` and after queue/review/confirm/close/status (`notion-sync` by hand). Only Status flows back: a Status changed in Notion is applied to jobs.db on the next sync (via apply.change_status, same as the CLI); if it changed in both places, jobs.db wins and the conflict is reported. `python main.py status <job_id> <status>` sets interviewing/offer/rejected (and the others) by hand.
+- Backups: each `run` first writes data/backups/jobs_YYYY-MM-DD.db (SQLite backup API, gitignored), keeping the last 14 days (config.yaml backup.keep_days).
+- Done when: one real application is pre-filled and the log row updates to "applied" after she confirms.
 
 ### Phase 6 — Evals + deploy
 - evals/run_evals.py: compare agent fit scores to her hand labels (agreement %, mean absolute error, confusion on apply/skip). Run before/after any prompt change.
-- Dockerfile + GitHub Actions workflow on a weekday schedule running search + score + log.
+- Dockerfile + GitHub Actions workflow on a weekday schedule running search + score + log (Notion).
 - Local schedule (done 2026-10-12): Windows Task Scheduler task "JobAgentDaily" runs run_daily.ps1 (`main.py run` with .venv Python) weekdays 8:00 AM as Nithya (interactive logon), runs as soon as possible after a missed start, 1-hour limit; output in logs\scheduled_*.log. `run_daily.ps1 -DryRun` checks the setup at no cost.
 - README: architecture diagram, eval results, demo GIF.
 

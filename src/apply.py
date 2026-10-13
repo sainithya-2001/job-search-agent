@@ -26,7 +26,10 @@ from src.store import Store
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG_PATH = ROOT / "logs" / "apply.jsonl"
-DONE = ("applied", "skipped", "closed")
+# Statuses Nithya has decided (or that come after applying): never re-queued or moved backwards.
+AFTER_APPLY = ("interviewing", "offer", "rejected")
+DONE = ("applied", "skipped", "closed") + AFTER_APPLY
+STATUSES = ("queued", "applied", "interviewing", "offer", "rejected", "skipped", "closed")   # the Notion Status options
 
 
 def log_event(event: dict) -> None:
@@ -36,7 +39,7 @@ def log_event(event: dict) -> None:
 
 
 def application_fields(store: Store, job_id: str) -> dict | None:
-    """The Sheets columns that come from the job + its score + its resume (shared with the agent's log tool)."""
+    """The application-log columns that come from the job + its score + its resume (shared with the agent's log tool)."""
     row = store.conn.execute(
         "SELECT j.*, s.fit_score, s.sponsorship_signal, s.uscis_status, s.matched_skills, s.gaps "
         "FROM jobs j LEFT JOIN scores s ON s.job_id = j.id WHERE j.id=?", (job_id,)).fetchone()
@@ -365,4 +368,27 @@ def confirm(store: Store, job_id: str, applied: bool, note: str = "") -> str:
         row["notes"] = note
     store.upsert_application(row)
     log_event({"event": status, "job_id": job_id, "company": fields["company"], "outcome": row["review_outcome"]})
+    return status
+
+
+def change_status(store: Store, job_id: str, status: str, note: str = "", source: str = "cli") -> str:
+    """Set an application's status by hand (`main.py status`, or a Status change pulled from Notion).
+    applied/skipped go through confirm() and closed through close(), so they behave exactly like those commands."""
+    if status not in STATUSES:
+        raise ValueError(f"status must be one of {', '.join(STATUSES)}, not {status!r}")
+    prev = store.application(job_id)
+    if status in ("applied", "skipped") and not (status == "applied" and prev and prev["date_applied"]):
+        return confirm(store, job_id, applied=status == "applied", note=note)
+    if status == "closed":
+        close(store, job_id, note or f"marked closed ({source})")
+        return status
+    if application_fields(store, job_id) is None:
+        raise ValueError(f"unknown job id {job_id}")
+    row = {"job_id": job_id, "status": status}      # applied with a date already (e.g. back from interviewing) keeps it
+    if prev is None:
+        row.update(application_fields(store, job_id))
+    if note:
+        row["notes"] = note
+    store.upsert_application(row)
+    log_event({"event": status, "job_id": job_id, "source": source, "note": note})
     return status

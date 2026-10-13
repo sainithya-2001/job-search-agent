@@ -20,7 +20,7 @@ from src.verify import select_summary
 ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = ROOT / "logs"
 OUT_DIR = ROOT / "output"
-CLOSED = ("applied", "skipped")
+CLOSED = ("applied", "skipped", "interviewing", "offer", "rejected")
 FIND_POSTING = "find employer posting"
 APPLY_MANUALLY = "apply manually on employer site"
 
