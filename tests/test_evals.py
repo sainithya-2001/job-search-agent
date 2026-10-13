@@ -76,3 +76,41 @@ def test_read_labels_reports_blank_and_bad(tmp_path):
         w.writerow([3, "j3", "C", "t", "u", "s", "yes", ""])
     labels, problems = ev.read_labels(p)
     assert labels == {"j1": "apply"} and len(problems) == 2 and "not labeled yet" in problems[0]
+
+
+# ---- interactive labeler (evals/label.py) ------------------------------------------------------------------------
+import label as lb  # noqa: E402
+
+
+def _label_csv(tmp_path, n=3):
+    p = tmp_path / "label_me.csv"
+    with open(p, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["n", "job_id", "company", "title", "link", "summary", "label (apply/maybe/skip)", "notes"])
+        for i in range(1, n + 1):
+            w.writerow([i, f"j{i}", f"Co{i}", "AI Engineer", f"https://x/{i}", "does things\nneeds things", "", ""])
+    return p
+
+
+def _drive(path, keys, **kw):
+    keys, out = iter(keys), []
+    lb.run(path, ask=lambda _: next(keys), out=out.append, **kw)
+    return "\n".join(out)
+
+
+def test_labeler_saves_each_answer_with_back_open_and_notes(tmp_path):
+    p, opened = _label_csv(tmp_path), []
+    out = _drive(p, ["x", "a", "great fit", "o", "b", "m", "", "s", "", "q"], open_url=opened.append)
+    labels, problems = ev.read_labels(p)
+    assert labels == {"j1": "maybe", "j2": "skip"}          # j1 relabeled after going back
+    _, rows = lb.load(p)
+    assert rows[0]["notes"] == "great fit"                   # Enter keeps the earlier note
+    assert opened == ["https://x/2"] and "[2/3]" in out and "(2/3)" in out and "fit_score" not in out
+
+
+def test_labeler_resumes_at_first_unlabeled_and_saves_before_quit(tmp_path):
+    p = _label_csv(tmp_path)
+    _drive(p, ["a", "", "q"])
+    out = _drive(p, ["s", "", "a", "", ])
+    assert "[2/3]" in out.split("saved")[0] and "3/3 labeled" in out
+    assert lb.done(lb.load(p)[1]) == 3
