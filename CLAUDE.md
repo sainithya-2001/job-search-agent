@@ -135,7 +135,8 @@ job-agent/
 
 ### Phase 6 — Evals + deploy
 - evals/run_evals.py: compare agent fit scores to her hand labels (agreement %, mean absolute error, confusion on apply/skip). Run before/after any prompt change.
-- Dockerfile + GitHub Actions workflow on a weekday schedule running search + score + log (Notion).
+- CI (done 2026-10-12): .github/workflows/tests.yml runs pytest on every push and PR (ubuntu, Python 3.11, Chromium for the form/PDF tests). No secrets, no personal data: the tests must pass without data/ or .env, and a guard step fails if .env, jobs.db, the master resume, the answer bank, backups, output/ or logs/ are ever tracked. Tests never write to the real logs/ (tests/conftest.py). The daily run stays on the local Task Scheduler (it needs data/ and keys), not on Actions.
+- Dockerfile with data/ and .env mounted at runtime, never copied into the image.
 - Local schedule (done 2026-10-12): Windows Task Scheduler task "JobAgentDaily" runs run_daily.ps1 (`main.py run` with .venv Python) weekdays 8:00 AM as Nithya (interactive logon), runs as soon as possible after a missed start, 1-hour limit; output in logs\scheduled_*.log. `run_daily.ps1 -DryRun` checks the setup at no cost.
 - README: architecture diagram, eval results, demo GIF.
 

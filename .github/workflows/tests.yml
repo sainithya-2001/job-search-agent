@@ -1,0 +1,36 @@
+# Run the test suite on every push and pull request.
+# No secrets: the tests use fakes and local HTML only, and need neither data/ (personal files, gitignored) nor .env.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fails if a personal or generated file was ever added to the repo (see .gitignore).
+      - name: No personal or generated files tracked
+        run: |
+          bad=$(git ls-files | grep -E '^\.env$|^data/(jobs\.db|master_resume\.yaml|answer_bank\.yaml|google_service_account\.json|backups/|resumes/|uscis/)|^output/|^logs/' || true)
+          if [ -n "$bad" ]; then echo "These must not be committed:"; echo "$bad"; exit 1; fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run tests
+        run: python -m pytest -q
