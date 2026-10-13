@@ -1,12 +1,14 @@
 # Job-search agent, headless commands only (run, search, score, tailor, digest, queue, notion-sync, ...).
 # `review` opens a visible browser for you to submit, so it runs on the host, not here.
 #
-# Nothing personal is in the image: data/ (master resume, answer bank, jobs.db) and .env are mounted at runtime.
+# Nothing personal is in the image: data/ (master resume, answer bank, jobs.db), config.local.yaml and .env are
+# mounted at runtime.
 # Only the code paths listed below are copied, and .dockerignore excludes data/, .env, output/ and logs/ as well.
 #
 #   docker build -t job-agent .
 #   docker run --rm --env-file .env \
 #     -v "$PWD/data:/app/data" -v "$PWD/output:/app/output" -v "$PWD/logs:/app/logs" \
+#     -v "$PWD/config.local.yaml:/app/config.local.yaml:ro" \
 #     job-agent run --dry-run
 FROM python:3.11.13-slim-bookworm
 

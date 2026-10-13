@@ -155,7 +155,7 @@ class Toolbox:
 
     def score_jobs(self, state: RunState, limit: int | None = None) -> ToolOutput:
         from src.resume import load_master, profile_text
-        from src.scorer import SYSTEM_TEMPLATE, estimate, score_jobs, select_jobs
+        from src.scorer import estimate, score_jobs, select_jobs, system_prompt
         from src.sponsorship import SponsorshipDB
 
         lim = state.limits
@@ -167,7 +167,7 @@ class Toolbox:
         if not jobs:
             out.result["note"] = "no unscored jobs"
             return out
-        system = SYSTEM_TEMPLATE.format(profile=profile_text(load_master(ROOT / "data" / "master_resume.yaml")))
+        system = system_prompt(self.cfg, load_master(ROOT / "data" / "master_resume.yaml"))
         est = estimate(jobs, system, self.llm, self.cfg)
         while jobs and est.expected > cap:          # trim to what the budget can carry, rather than refusing
             jobs = jobs[:-1]
@@ -424,7 +424,7 @@ def plan(cfg: dict, store: Store, llm: LLMProvider) -> str:
     """What `run` would do, with cost estimates. Fetches the boards (free) but writes nothing and makes no LLM calls."""
     from src.pipeline import run_search, tailor_context, tailor_estimate
     from src.resume import load_master, profile_text
-    from src.scorer import SYSTEM_TEMPLATE, estimate, select_jobs
+    from src.scorer import estimate, select_jobs, system_prompt
 
     lim, acfg = Limits.from_cfg(cfg), cfg["agent"]
     pricing = cfg["llm"].get("pricing", {})
@@ -441,7 +441,7 @@ def plan(cfg: dict, store: Store, llm: LLMProvider) -> str:
               "description": j.description, "role_hint": search.hints[j.id],
               "posted_at": j.posted_at.isoformat() if j.posted_at else None} for j in search.new]
     to_score = select_jobs(pool, cfg, lim.score_limit)
-    system = SYSTEM_TEMPLATE.format(profile=profile_text(load_master(ROOT / "data" / "master_resume.yaml")))
+    system = system_prompt(cfg, load_master(ROOT / "data" / "master_resume.yaml"))
     score_cap = min(lim.max_score_cost, lim.max_cost - lim.agent_reserve)
     est = estimate(to_score, system, llm, cfg)
     while to_score and est.expected > score_cap:

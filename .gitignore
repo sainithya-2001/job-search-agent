@@ -28,3 +28,7 @@ data/google_service_account.json
 # eval caches (re-creatable)
 evals/.summaries.json
 evals/.eval_scores.json
+
+# personal settings and notes (resume-specific rules, work status)
+config.local.yaml
+CLAUDE.local.md

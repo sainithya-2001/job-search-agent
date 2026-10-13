@@ -30,7 +30,7 @@ fit_score rubric (0-100):
 - 35-54: weak overlap; mostly a different skill set.
 - 0-34: wrong kind of role, or clearly ineligible (requires US citizenship, a security clearance, or US-person /
   permanent-resident status).
-Statements about
+{work_authorization}Statements about
 sponsorship ("we do not sponsor", "must be authorized to work without sponsorship") do not affect fit_score.
 If seniority_ok is false, fit_score must be at most 50.
 
@@ -63,6 +63,14 @@ one_line_reason: one sentence, at most 25 words.
 CANDIDATE PROFILE
 {profile}
 """
+
+
+def system_prompt(cfg: dict, master: dict) -> str:
+    """The scoring system prompt: SYSTEM_TEMPLATE with the candidate profile and the optional work-authorization
+    sentence (scoring.work_authorization, set in the gitignored config.local.yaml)."""
+    from src.resume import profile_text
+    return SYSTEM_TEMPLATE.format(profile=profile_text(master),
+                                  work_authorization=cfg.get("scoring", {}).get("work_authorization", ""))
 
 
 def job_prompt(job) -> str:

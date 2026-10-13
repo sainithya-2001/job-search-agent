@@ -39,7 +39,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
 - Notion API via plain httpx (application log; no Notion SDK, chosen 2026-10-12), key NOTION_TOKEN + NOTION_PARENT_PAGE_ID in .env. Replaced Google Sheets / gspread (2026-10-12).
 - playwright (form pre-fill, review mode only)
 - pytest (tests)
-- Config in config.yaml; secrets in .env (never committed; add to .gitignore)
+- Config in config.yaml; secrets in .env (never committed; add to .gitignore). Personal settings (rules naming master-resume ids, the work-authorization sentence for the scoring prompt) go in config.local.yaml (gitignored, deep-merged over config.yaml by main.load_config; template config.local.example.yaml); personal notes in CLAUDE.local.md (gitignored). Tests ignore config.local.yaml.
 
 ## Folder structure
 ```

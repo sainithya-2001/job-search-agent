@@ -483,3 +483,28 @@ def test_restricted_remote_ranks_after_preferred_and_unrestricted_remote(cfg):
     assert rank("Remote - US") == 0 and rank("Remote - TX") == 2
     assert rank("Remote - Colorado") == 3
     assert rank("Remote - US", "You must reside in Colorado or Utah.") == 3     # looks US-remote, but restricted
+
+
+def test_local_config_overlay_merges_dicts_and_replaces_lists(tmp_path, monkeypatch):
+    import main
+    base = tmp_path / "config.yaml"
+    base.write_text("scoring: {escalate_threshold: 45, work_authorization: ''}\ntailoring: {required_bullets: [], tier: strong}\n",
+                    encoding="utf-8")
+    local = tmp_path / "config.local.yaml"
+    local.write_text("scoring: {work_authorization: 'X. '}\ntailoring: {required_bullets: [{ids: [b1]}]}\n", encoding="utf-8")
+    monkeypatch.setattr(main, "LOCAL_CONFIG", local)
+    monkeypatch.delenv("JOB_AGENT_NO_LOCAL_CONFIG", raising=False)
+    cfg = main.load_config(base)
+    assert cfg["scoring"] == {"escalate_threshold": 45, "work_authorization": "X. "}
+    assert cfg["tailoring"] == {"required_bullets": [{"ids": ["b1"]}], "tier": "strong"}
+    monkeypatch.setenv("JOB_AGENT_NO_LOCAL_CONFIG", "1")
+    assert main.load_config(base)["scoring"]["work_authorization"] == ""
+
+
+def test_system_prompt_inserts_work_authorization_before_sponsorship_rule(monkeypatch):
+    from src.scorer import system_prompt
+    monkeypatch.setattr("src.resume.profile_text", lambda m: "PROFILE")
+    master = {}
+    with_note = system_prompt({"scoring": {"work_authorization": "Work authorization: Z. "}}, master)
+    assert "Work authorization: Z. Statements about\nsponsorship" in with_note
+    assert "{work_authorization}" not in system_prompt({}, master) and "Statements about\nsponsorship" in system_prompt({}, master)

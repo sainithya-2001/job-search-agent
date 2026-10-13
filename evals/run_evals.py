@@ -228,7 +228,7 @@ def main() -> None:
     from main import load_config
     from src.llm import get_llm, load_env
     from src.resume import load_master, profile_text
-    from src.scorer import SYSTEM_TEMPLATE
+    from src.scorer import system_prompt
     from src.store import Store
 
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -247,7 +247,7 @@ def main() -> None:
     jobs = {r["id"]: r for r in (store.conn.execute("SELECT * FROM jobs WHERE id=?", (j,)).fetchone()
                                  for j in labels) if r is not None}
     llm = get_llm(cfg)
-    system = SYSTEM_TEMPLATE.format(profile=profile_text(load_master(ROOT / "data" / "master_resume.yaml")))
+    system = system_prompt(cfg, load_master(ROOT / "data" / "master_resume.yaml"))
     cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
     score_missing(cfg, llm, jobs, system, cache, args.cap, args.score)
 

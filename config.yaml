@@ -15,6 +15,9 @@ llm:
 
 scoring:
   escalate_threshold: 45   # fast-tier fit_score at or above this gets re-scored by the strong tier
+  # Optional sentence inserted into the scoring prompt before the sponsorship rule (e.g. the candidate's work
+  # authorization). Personal: set it in config.local.yaml, not here.
+  work_authorization: ""
   default_limit: 20         # jobs scored per `python main.py score` run unless --limit is given
   max_per_company: 3        # diversity cap when picking which jobs to score
   max_run_cost_usd: 0.50    # refuse to start if the worst-case estimate exceeds this; stop mid-run if actual does
@@ -78,18 +81,17 @@ tailoring:
     program_product_manager: [Technical Program Manager, Program Manager, Product Manager]
   headline_forbidden_words: [Senior, Lead, Principal, Staff]
   max_headline_skills: 4
+  # The next three rules name master-resume ids, so the real values live in config.local.yaml (gitignored; see
+  # config.local.example.yaml). Empty here.
   # Experience entries that may be dropped (e.g. to fit one page). All others must appear, in order.
-  optional_experience: [exp_emp_c]
+  optional_experience: []
   # Bullets that must be cited for these role families (unless the job title matches unless_title).
-  required_bullets:
-    - {ids: [exp_emp_a_b04], families: [ai_engineer, ai_solutions, forward_deployed, ai_consultant, ai_eval, analyst_backup],
-       unless_title: 'business analyst', why: "key metric bullet for AI and analytics roles"}
+  required_bullets: []
   # Projects that must be included for these role families.
   required_projects:
     - {id: proj_job_agent, families: [ai_engineer, ai_solutions, forward_deployed, ai_consultant, ai_eval]}
   # If `over` is used, `prefer` must be used too.
-  preferences:
-    - {prefer: exp_univ_b01, over: exp_univ_b03, why: "stronger bullet first"}
+  preferences: []
   tier: strong               # model tier for drafting and for the LLM fact-check
   # ATS keywords (src/keywords.py): extracted keywords matching any of these are soft skills / filler. They are
   # ignored for coverage and never steer the draft. Applied at match time, so edits here need no re-extraction.

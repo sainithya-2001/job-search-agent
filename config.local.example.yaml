@@ -1,0 +1,14 @@
+# Copy to config.local.yaml (gitignored) and fill in. Layered over config.yaml: nested sections merge, lists
+# replace. Use it for anything personal, such as rules that name your master_resume.yaml ids.
+
+scoring:
+  # Optional sentence for the scoring prompt, inserted before the sponsorship rule. End it with a space.
+  work_authorization: "Work authorization: <your status>. "
+
+tailoring:
+  optional_experience: [exp_example]          # experience entries that may be dropped to fit one page
+  required_bullets:                            # bullets that must appear for these role families
+    - {ids: [exp_example_b01], families: [ai_engineer, analyst_backup], unless_title: 'business analyst',
+       why: "key metric bullet for AI and analytics roles"}
+  preferences:                                 # if `over` is used, `prefer` must be used too
+    - {prefer: exp_example_b02, over: exp_example_b03, why: "stronger bullet first"}

@@ -1,6 +1,8 @@
 # Never send personal or generated files to the Docker build (the Dockerfile also copies only named code paths).
 .env
 .env.*
+config.local.yaml
+CLAUDE.local.md
 !.env.example
 data/
 !data/answer_bank.example.yaml

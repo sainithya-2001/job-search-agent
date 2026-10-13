@@ -19,7 +19,7 @@ jobs:
       # Fails if a personal or generated file was ever added to the repo (see .gitignore).
       - name: No personal or generated files tracked
         run: |
-          bad=$(git ls-files | grep -E '^\.env$|^data/(jobs\.db|master_resume\.yaml|answer_bank\.yaml|google_service_account\.json|backups/|resumes/|uscis/)|^output/|^logs/' || true)
+          bad=$(git ls-files | grep -E '^\.env$|^config\.local\.yaml$|^CLAUDE\.local\.md$|^data/(jobs\.db|master_resume\.yaml|answer_bank\.yaml|google_service_account\.json|backups/|resumes/|uscis/)|^output/|^logs/' || true)
           if [ -n "$bad" ]; then echo "These must not be committed:"; echo "$bad"; exit 1; fi
 
       - uses: actions/setup-python@v5
@@ -51,7 +51,7 @@ jobs:
           id=$(docker create job-agent:ci)
           docker export "$id" | tar -t > files.txt
           docker rm "$id" > /dev/null
-          bad=$(grep -E '^app/(\.env$|data/.+|output/.+|logs/.+|evals/label_me\.csv|tests/)' files.txt \
+          bad=$(grep -E '^app/(\.env$|config\.local\.yaml$|CLAUDE\.local\.md$|data/.+|output/.+|logs/.+|evals/label_me\.csv|tests/)' files.txt \
                 | grep -v '^app/data/answer_bank\.example\.yaml$' || true)
           if [ -n "$bad" ]; then echo "Found in image:"; echo "$bad"; exit 1; fi
           grep -q '^app/main.py$' files.txt && grep -q '^app/src/notion.py$' files.txt

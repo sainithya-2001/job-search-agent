@@ -12,9 +12,26 @@ from src.store import Store
 ROOT = Path(__file__).parent
 
 
+LOCAL_CONFIG = ROOT / "config.local.yaml"
+
+
+def _merge(base: dict, over: dict) -> dict:
+    """Deep-merge `over` into `base`: nested dicts merge, anything else (lists included) is replaced."""
+    for k, v in over.items():
+        base[k] = _merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return base
+
+
 def load_config(path: Path = ROOT / "config.yaml") -> dict:
+    """config.yaml, overlaid with config.local.yaml (gitignored: personal values such as the tailoring rules that
+    name master-resume bullet ids). Tests set JOB_AGENT_NO_LOCAL_CONFIG so they see only the committed config."""
+    import os
+
     with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if LOCAL_CONFIG.exists() and not os.environ.get("JOB_AGENT_NO_LOCAL_CONFIG"):
+        cfg = _merge(cfg, yaml.safe_load(LOCAL_CONFIG.read_text(encoding="utf-8")) or {})
+    return cfg
 
 
 _EXPORT_WORDS = ("export", "itar", "ear", "person", "permanent", "green")
@@ -82,7 +99,7 @@ def cmd_search(args) -> None:
 def cmd_score(args) -> None:
     from src.llm import get_llm
     from src.resume import load_master, profile_text
-    from src.scorer import SYSTEM_TEMPLATE, estimate, hide_stale, is_fresh, rank_results, score_jobs, select_jobs, \
+    from src.scorer import system_prompt, estimate, hide_stale, is_fresh, rank_results, score_jobs, select_jobs, \
         select_mix
     from src.sponsorship import SponsorshipDB
 
@@ -120,7 +137,7 @@ def cmd_score(args) -> None:
         print("No unscored jobs. Run `python main.py search` first.")
         return
 
-    system = SYSTEM_TEMPLATE.format(profile=profile_text(load_master(ROOT / "data" / "master_resume.yaml")))
+    system = system_prompt(cfg, load_master(ROOT / "data" / "master_resume.yaml"))
     llm = get_llm(cfg)
     est = estimate(jobs, system, llm, cfg)
     print(f"Scoring {len(jobs)} jobs  |  fast: {llm.models['fast']}  strong (>= {cfg['scoring']['escalate_threshold']}): "
