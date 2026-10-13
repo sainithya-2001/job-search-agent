@@ -1,0 +1,17 @@
+# Never send personal or generated files to the Docker build (the Dockerfile also copies only named code paths).
+.env
+.env.*
+!.env.example
+data/
+!data/answer_bank.example.yaml
+output/
+logs/
+evals/label_me.csv
+evals/results.md
+evals/.*.json
+.git/
+.github/
+.venv/
+**/__pycache__/
+.pytest_cache/
+tests/
