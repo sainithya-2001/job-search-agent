@@ -206,7 +206,7 @@ def hide_stale(rows: list, cfg: dict, now: datetime | None = None,
 
 
 def tailor_threshold(row, cfg: dict, now: datetime | None = None) -> int:
-    """Minimum fit_score to tailor: agent.tailor_min_score (65), or agent.tailor_min_score_fresh (58) for a job
+    """Minimum fit_score to tailor: agent.tailor_min_score (50), or agent.tailor_min_score_fresh (45) for a job
     posted within ranking.fresh_days (0-3 days)."""
     a = cfg["agent"]
     if is_fresh(row, cfg, now):

@@ -111,7 +111,9 @@ def run_search(cfg: dict, store: Store, *, save: bool = True) -> SearchResult:
 def recheck_existing(cfg: dict, store: Store, jf: JobFilter | None = None) -> Counter:
     # Re-check unscored jobs already in the DB against the CURRENT filters and company list, so rule changes
     # apply retroactively in both directions: newly failing jobs are excluded, and previously excluded jobs that
-    # now pass come back as new. Rows are re-labelled, never deleted; scored jobs are left alone.
+    # now pass come back as new. Rows are re-labelled, never deleted. Scored jobs are re-checked against the hard
+    # title exclusions only (age is handled at display time by scorer.hide_stale); a job with an application row
+    # (to review, queued, applied, ...) or a tailored resume is never touched.
     jf = jf or job_filter(cfg)
     configured = {c["name"] for c in cfg["companies"]}
     relabel = Counter()
@@ -135,11 +137,16 @@ def recheck_existing(cfg: dict, store: Store, jf: JobFilter | None = None) -> Co
             store.set_status(row["id"], "dropped_company"); relabel["dropped_company"] += 1
         elif not jf.check(job_from_row(row)).keep:
             store.set_status(row["id"], "excluded"); relabel["excluded"] += 1
+    for row in store.jobs_by_status("scored"):
+        if jf.title_excluded(row["title"]) and not store.application(row["id"]):
+            store.set_status(row["id"], "excluded"); relabel["excluded (scored, title rule)"] += 1
+    scored = {r[0] for r in store.conn.execute("SELECT job_id FROM scores")}
     for row in store.jobs_by_status("excluded"):
         if row["source"] == "jsearch" and not row["apply_direct"]:
             continue                  # excluded by the strict source rule, not by the filters
         if (row["source"] == "jsearch" or row["company"] in configured) and jf.check(job_from_row(row)).keep:
-            store.set_status(row["id"], "new"); relabel["restored (now passes filters)"] += 1
+            back = "scored" if row["id"] in scored else "new"     # a scored job keeps its score
+            store.set_status(row["id"], back); relabel[f"restored as {back} (now passes filters)"] += 1
     return relabel
 
 

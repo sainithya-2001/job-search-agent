@@ -76,7 +76,7 @@ job-agent/
   templates/resume.html.j2
   output/resumes/
   evals/
-    labeled_jobs.csv     # 50 jobs Nithya scored by hand
+    label_me.csv         # 30 jobs Nithya labeled by hand (apply/maybe/skip); label.py labels in the terminal
     run_evals.py
   tests/
   main.py                # CLI: search | score | tailor | run | digest | close | queue | review | apply <job_id> | confirm | status | notion-sync
@@ -94,7 +94,7 @@ job-agent/
 
 ### Phase 2 — Score
 - For each new job, call the LLM with the master resume and job description. Force JSON output matching ScoredJob: fit_score (0-100), role_family, matched_skills[], gaps[], sponsorship_signal (yes/no/unclear + quote), is_staffing_firm (bool), seniority_ok (bool), one_line_reason.
-- Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Sonnet 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (60). Models per tier are set in config.yaml under llm.models.
+- Use the "fast" tier (Claude Haiku 5.5; Gemini: 3.5 Flash-Lite) for the first pass and the "strong" tier (Claude Sonnet 5.5; Gemini: 3.8 Flash) only for jobs scoring >= scoring.escalate_threshold (45; was 60 before the 2026-10-12 eval). Models per tier are set in config.yaml under llm.models.
 - The scoring prompt stays neutral on sponsorship: sponsorship_signal is reported from the posting but never affects fit_score. It is used only for ordering (ranking above, tailoring order in Phase 4). The USCIS cross-check (sponsorship.py) is informational only.
 - Ranking of results (scorer.rank_results): fit_score, then freshness (posted 0-3 days ago first), then sponsorship_signal (yes > unclear > no), then company tier (startup > growth > big_tech), then location priority. On top of that, a fresh (0-3 day) job goes ahead of an older job scoring up to 5 points higher (config.yaml ranking.freshness_preference_points). Sponsorship is a preference, never a filter.
 - Cost control: print an estimate before each run and the actual cost after; never exceed scoring.max_run_cost_usd.
@@ -118,7 +118,7 @@ job-agent/
 - Expose search_jobs, score_job, tailor_resume, log_application as tools. Write a plain tool-use loop (no framework) so the loop is readable. Add tool-calling to the src/llm.py interface so the loop stays provider-neutral.
 - Log every tool call (name, args, latency, tokens, cost) to logs/.
 - Tailoring order (scorer.tailor_order, enforced in tailor_resume): the result ranking with its freshness preference, plus a sponsorship-"yes" job goes ahead of a non-"yes" job scoring up to 3 points higher (ranking.sponsorship_preference_points), except it never moves an older job ahead of a fresh one.
-- Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 65 (>= 58 for jobs posted 0-3 days ago: agent.tailor_min_score_fresh) and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
+- Limits (config.yaml `agent`, enforced in code, not by the prompt): hard cost cap $0.50 per run (model turns + scoring + tailoring), max 30 tool calls, stop and report if any tool fails twice in a row, tailor only fit_score >= 50 (>= 45 for jobs posted 0-3 days ago: agent.tailor_min_score_fresh; lowered from 65/58 after the 2026-10-12 eval) and at most 5 per run, no apply tool (log_application can't set "applied"). `python main.py run --dry-run` plans and estimates with no LLM calls and no DB writes.
 - Before tailoring ANY job (agent and `tailor` command), src/linkcheck.py checks the posting page for closure ("no longer accepting applications", "position filled", "job closed", HTTP 404/410, Greenhouse removed-job redirect). A closed posting gets status "closed" (job and its open application row), is skipped with no spend, and leaves ranking, the review queue, and the digest. `python main.py close <job_id> [--note]` marks one closed by hand. A page that just fails to load does not block an ATS-board job.
 - After each run: queue the jobs tailored today (headless form read, review mode) and write output/digest_YYYY-MM-DD.md (src/digest.py; `python main.py digest [--date]` rebuilds it): run stats for the day from logs/ (searched, filtered out, passed, new, scored, tailored, JSearch requests, run cost); Tier A = up to 5 jobs tailored today, ranked (fit, freshness, company tier, one-line reason, queue status, link; more than 5 = an overflow line only); Tier B = the next 10 ranked untailored jobs with fit >= 50 (not applied/skipped) with fit, freshness, reason, link, the approved summary that fits (or none), and why it wasn't tailored. Limits in config.yaml `digest`.
 - Done when: python main.py run does a full daily cycle autonomously up to (not including) applying.

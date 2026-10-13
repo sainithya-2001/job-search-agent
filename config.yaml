@@ -14,7 +14,7 @@ llm:
     claude-opus-5-5:   {input: 4.00, output: 20.00}
 
 scoring:
-  escalate_threshold: 60    # fast-tier fit_score at or above this gets re-scored by the strong tier
+  escalate_threshold: 45   # fast-tier fit_score at or above this gets re-scored by the strong tier
   default_limit: 20         # jobs scored per `python main.py score` run unless --limit is given
   max_per_company: 3        # diversity cap when picking which jobs to score
   max_run_cost_usd: 0.50    # refuse to start if the worst-case estimate exceeds this; stop mid-run if actual does
@@ -47,8 +47,8 @@ agent:
   max_turns: 25                 # model turns (backstop against a model that keeps talking without finishing)
   score_limit: 15               # jobs scored per run
   max_score_cost_usd: 0.15      # scoring's share of the cap, so tailoring always has budget left
-  tailor_min_score: 65
-  tailor_min_score_fresh: 58    # lower bar for jobs posted 0-3 days ago (ranking.fresh_days)
+  tailor_min_score: 50           # from the 2026-10-12 eval (evals/results.md); was 65
+  tailor_min_score_fresh: 45    # lower bar for jobs posted 0-3 days ago (ranking.fresh_days)
   max_tailor_per_run: 5
   agent_reserve_usd: 0.02       # held back from tools so the model can always finish
   est_turn_input_tokens: 4000   # for the dry-run estimate and the per-turn budget check
@@ -364,7 +364,7 @@ filters:
   title_exclude: ['\b(staff|principal|distinguished|director|head of|vp|vice president|chief|lead)\b', '\bintern(ship)?\b',
                   '\bengineering manager\b', '(?<!program )(?<!product )\bmanager,? (of )?(software )?engineering\b',
                   # Engineering specialties outside the target roles — dropped even when the title says AI.
-                  '\bfront[- ]?end\b', '\bfull[- ]?stack\b', '\binfrastructure\b', '\binfra\b', '\bplatform\b',
+                  '\bfront[- ]?end\b', '\bfull[\s_-]*stack\b', '\binfrastructure\b', '\binfra\b', '\bplatform\b',
                   '\bsecurity\b', '\bappsec\b', '\bsystems? engineer', '\bsre\b', '\bsite reliability\b', '\bdevops\b',
                   '\bnetwork operations\b', '\bchip design\b', '\bhardware\b', '\belectrical\b',
                   '\bmobile\b', '\bios\b', '\bandroid\b',

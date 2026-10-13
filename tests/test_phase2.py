@@ -100,6 +100,7 @@ def test_select_orders_by_family_then_location_and_caps_company(cfg):
 # --- scoring flow ----------------------------------------------------------------
 
 def test_escalates_only_at_or_above_threshold(cfg):
+    cfg["scoring"]["escalate_threshold"] = 60           # pinned: the live value changes with evals
     llm, store = FakeLLM([59, 60, 85]), FakeStore()
     jobs = [job(1), job(2), job(3)]
     est = estimate(jobs, "system", llm, cfg)

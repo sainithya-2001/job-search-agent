@@ -56,6 +56,7 @@ def test_tier_a_is_today_only_ranked_and_capped_at_5(store, cfg):
 
 
 def test_tier_b_next_10_untailored_50_plus_with_summary(store, cfg):
+    cfg["agent"].update(tailor_min_score=65, tailor_min_score_fresh=58)     # pinned: the live values change with evals
     add(store, 0, 70, status="tailored")
     add(store, 1, 49)                                       # under 50
     add(store, 2, 60, family="program_product_manager")     # no approved summary in MASTER

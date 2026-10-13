@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import os
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -33,7 +34,14 @@ def save(path: Path, header: list[str], rows: list[dict]) -> None:
         w = csv.DictWriter(f, fieldnames=header)
         w.writeheader()
         w.writerows(rows)
-    os.replace(tmp, path)
+    for attempt in range(10):           # Windows: antivirus/indexer can hold the file for a moment after a write
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            time.sleep(0.1)
 
 
 def done(rows: list[dict]) -> int:

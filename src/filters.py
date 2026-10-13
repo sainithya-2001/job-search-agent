@@ -139,13 +139,16 @@ class JobFilter:
             states |= _states_in(m.group(1))
         return bool(states) and not states & self.preferred_states
 
+    def title_excluded(self, title: str) -> bool:
+        """The hard title exclusions alone (seniority / specialty), also re-applied to already-scored jobs."""
+        return any(p.search(title) for p in self.title_exclude)
+
     def check(self, job: Job) -> FilterResult:
         family = self.role_family(job.title)
         if family is None:
             return FilterResult(False, "title: not a target role")
-        for p in self.title_exclude:
-            if p.search(job.title):
-                return FilterResult(False, "title: excluded seniority / specialty")
+        if self.title_excluded(job.title):
+            return FilterResult(False, "title: excluded seniority / specialty")
         for p, allowed in self.except_families:
             if p.search(job.title) and family not in allowed:
                 return FilterResult(False, "title: excluded seniority / specialty")

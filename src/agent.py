@@ -6,8 +6,8 @@ turn but can never overspend, loop forever, tailor a weak match, or apply anywhe
     paid step is pre-checked against a projected cost before it starts
   - at most agent.max_tool_calls tool calls per run
   - a tool that fails agent.max_consecutive_failures times in a row stops the run
-  - tailor_resume refuses jobs below the tailoring threshold (agent.tailor_min_score 65, or
-    agent.tailor_min_score_fresh 58 for jobs posted 0-3 days ago), already-tailored jobs, and more than
+  - tailor_resume refuses jobs below the tailoring threshold (agent.tailor_min_score 50, or
+    agent.tailor_min_score_fresh 45 for jobs posted 0-3 days ago), already-tailored jobs, and more than
     agent.max_tailor_per_run per run
   - there is no apply tool; log_application cannot write status "applied"
 Every model turn and tool call is logged (name, args, latency, tokens, cost) to logs/run_<timestamp>.jsonl.
@@ -448,7 +448,7 @@ def plan(cfg: dict, store: Store, llm: LLMProvider) -> str:
         to_score = to_score[:-1]
         est = estimate(to_score, system, llm, cfg)
 
-    # Tailoring: backlog of untailored 65+ jobs, plus the expected number of new 65+ scores at the historical rate.
+    # Tailoring: backlog of untailored jobs at the threshold, plus the expected number of new ones at the historical rate.
     from src.scorer import tailor_threshold
     backlog = [r for r in store.scored_rows() if r["status"] == "scored" and r["fit_score"] >= tailor_threshold(r, cfg)]
     hist = store.conn.execute("SELECT COUNT(*), SUM(fit_score >= ?) FROM scores", (lim.tailor_min_score,)).fetchone()

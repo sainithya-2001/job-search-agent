@@ -104,7 +104,7 @@ def test_recheck_restores_jobs_that_now_pass(tmp_path, cfg_filters):
     store.save([ok, bad])
     store.set_status(ok.id, "excluded"); store.set_status(bad.id, "excluded")
     cfg = {"filters": cfg_filters, "companies": [{"name": ok.company, "hq": "US"}]}
-    assert recheck_existing(cfg, store)["restored (now passes filters)"] == 1
+    assert recheck_existing(cfg, store)["restored as new (now passes filters)"] == 1
     assert [r["id"] for r in store.jobs_by_status("new")] == [ok.id]
     store.close()
 
@@ -332,3 +332,29 @@ def test_generic_program_managers_excluded(jf, title):
 ])
 def test_region_titles_excluded(jf, title, keep):
     assert jf.check(make_job(title=title)).keep is keep
+
+
+def test_full_stack_spellings_are_excluded(cfg_filters):
+    jf = JobFilter(cfg_filters)
+    for t in ("Fullstack AI Engineer", "Full Stack AI Engineer", "Full-Stack AI Engineer", "FullStack Engineer, AI",
+              "Full  Stack AI Engineer"):
+        assert not jf.check(make_job(title=t)).keep, t
+    assert jf.check(make_job(title="AI Engineer")).keep
+
+
+def test_recheck_excludes_scored_jobs_by_title_but_keeps_pipeline_jobs(tmp_path, cfg_filters):
+    from src.pipeline import recheck_existing
+    from src.store import Store
+
+    store = Store(tmp_path / "jobs.db")
+    a = make_job(title="Senior Fullstack Software Engineer, AI").model_copy(update={"id": "gh:x:a"})
+    b = make_job(title="Full Stack AI Engineer").model_copy(update={"id": "gh:x:b"})
+    store.save([a, b])
+    for j in (a, b):
+        store.save_score({"job_id": j.id, "fit_score": 60, "fast_score": 60, "escalated": 0, "model": "m",
+                          "scored_at": "2026-10-12T00:00:00+00:00"})
+    store.upsert_application({"job_id": b.id, "status": "queued"})     # already in her review queue: untouched
+    cfg = {"filters": cfg_filters, "companies": [{"name": a.company, "hq": "US"}]}
+    assert recheck_existing(cfg, store)["excluded (scored, title rule)"] == 1
+    assert store.conn.execute("SELECT status FROM jobs WHERE id=?", (a.id,)).fetchone()[0] == "excluded"
+    assert store.conn.execute("SELECT status FROM jobs WHERE id=?", (b.id,)).fetchone()[0] == "scored"
