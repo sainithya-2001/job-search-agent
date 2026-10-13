@@ -531,7 +531,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("skills-gap", help="Top skills asked for across scored jobs vs. the master resume")
     p.add_argument("--top", type=int, default=20)
     p.set_defaults(func=cmd_skills_gap)
-    p = sub.add_parser("run", help="Daily agent cycle: search, score, tailor 65+ (never applies)")
+    p = sub.add_parser("run", help="Daily agent cycle: search, score, tailor 50+ (45+ if fresh; never applies)")
     p.add_argument("--dry-run", action="store_true", help="plan and estimate cost; no LLM calls, no DB writes")
     p.set_defaults(func=cmd_run)
     p = sub.add_parser("digest", help="Write output/digest_YYYY-MM-DD.md (Tier A tailored today, Tier B next 10)")

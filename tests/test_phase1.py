@@ -141,6 +141,7 @@ def test_temporary_and_intern_still_excluded(jf):
     ("Remote in Canada", True, "", False),             # "in" must not read as Indiana
     ("Remote - EMEA", True, "", False),
     ("Remote - LATAM", True, "", False),
+    ("Remote - MENA", True, "", False),
     ("Remote - Colorado", True, "", True),             # any US state passes (ranked lower)
     ("Remote (CA, NY)", True, "", True),               # CA allowed
     ("Remote - TX", True, "", True),
@@ -328,6 +329,7 @@ def test_generic_program_managers_excluded(jf, title):
 @pytest.mark.parametrize("title,keep", [
     ("Solutions Architect, EMEA", False), ("AI Engineer (APAC)", False), ("Forward Deployed Engineer - LATAM", False),
     ("Applied AI Engineer, EU", False), ("Solutions Engineer UK", False),
+    ("Solutions Architect, Integrations (MENA)", False),
     ("AI Engineer, Europe-adjacent Neural Systems", True),            # case-sensitive: no false hits on words
 ])
 def test_region_titles_excluded(jf, title, keep):

@@ -371,7 +371,7 @@ filters:
                   '\bnetwork operations\b', '\bchip design\b', '\bhardware\b', '\belectrical\b',
                   '\bmobile\b', '\bios\b', '\bandroid\b',
                   # Non-US regions in the title (case-sensitive so "eu"/"uk" inside other words never match).
-                  '(?-i:\b(EMEA|APAC|LATAM|EU|UK)\b)']
+                  '(?-i:\b(EMEA|APAC|LATAM|MENA|EU|UK)\b)']
 
   # Other specialties dropped UNLESS the title also matches `ai_title_terms`
   # ("Backend Engineer" is dropped; "Backend Engineer, LLM" is kept).

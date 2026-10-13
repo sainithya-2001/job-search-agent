@@ -1,0 +1,104 @@
+# Sample master resume for a FICTIONAL candidate, so anyone can run the agent without real data.
+# Copy to data/master_resume.yaml (gitignored) and replace everything with your own facts:
+#   cp data/master_resume.example.yaml data/master_resume.yaml
+#
+# This file is the single source of truth: tailoring may only select, reorder and reword what is here, and
+# verify.py rejects any number, tool or claim that doesn't trace back to a bullet id below.
+# Every bullet, skill and course needs a unique id. Mark superseded items with `outdated: "<why>"` and they are
+# never shown to a model or cited. Loading fails while any `conflicts` / `missing` entry is not "resolved".
+
+contact:
+  name: {value: "Alex Example"}
+  email: {value: "alex@example.com"}
+  phone: {value: "(555) 010-0000"}
+  location: {value: "Springfield, USA"}
+
+years_experience: {value: "4+ years"}
+
+experience:
+  - id: exp_northwind
+    company: Northwind Analytics
+    title: Data Analyst
+    dates: {start: "2023-01", end: "present"}
+    bullets:
+      - {id: exp_northwind_b01, text: "Built SQL and Python pipelines feeding 12 weekly dashboards, cutting manual reporting time by 40%."}
+      - {id: exp_northwind_b02, text: "Built a forecasting model in Python (scikit-learn) that lowered forecast error from 18% to 9%."}
+      - {id: exp_northwind_b03, text: "Prototyped an LLM-based ticket classifier with the OpenAI API and an evaluation set of 500 labeled tickets."}
+      - {id: exp_northwind_b04, text: "Presented findings to product and operations leads and turned them into quarterly roadmap items."}
+  - id: exp_contoso
+    company: Contoso Retail
+    title: Business Analyst
+    dates: {start: "2020-06", end: "2022-12"}
+    bullets:
+      - {id: exp_contoso_b01, text: "Gathered requirements from 6 business teams and wrote specs for an inventory reporting system."}
+      - {id: exp_contoso_b02, text: "Automated a monthly Excel reconciliation with Python, saving about 10 hours per month."}
+      - {id: exp_contoso_b03, text: "Built Tableau dashboards for store performance used by 30 regional managers."}
+
+projects:
+  - id: proj_job_agent              # config.yaml tailoring.required_projects includes this id for AI roles
+    name: Job-Search Agent
+    tech: [{name: Python}, {name: Anthropic API}, {name: SQLite}, {name: Playwright}]
+    bullets:
+      - {id: proj_job_agent_b01, text: "Built an LLM agent that scores job postings and tailors a resume per job, with a citation check that rejects unsupported claims."}
+      - {id: proj_job_agent_b02, text: "Added an eval harness comparing model fit scores with hand labels on 30 jobs."}
+  - id: proj_rag
+    name: Document Q&A Assistant
+    tech: [{name: Python}, {name: LangChain}, {name: FAISS}]
+    bullets:
+      - {id: proj_rag_b01, text: "Built a RAG assistant over 200 policy documents with LangChain and FAISS, with source citations in every answer."}
+
+# Pre-approved summaries. Never model-written: code picks one by role family (and optional title regex).
+# A role family with no summary here is scored and ranked but never tailored.
+approved_summaries:
+  - id: sum_ai
+    use_for: {role_families: [ai_engineer, ai_solutions, forward_deployed, ai_consultant, ai_eval]}
+    text: "Data professional with 4+ years of experience. Builds LLM applications, RAG assistants and evaluation sets in Python."
+  - id: sum_analytics
+    use_for: {role_families: [analyst_backup], title_not: "business analyst"}
+    text: "Data analyst with 4+ years of experience. Builds SQL and Python pipelines, dashboards and forecasting models."
+  - id: sum_ba
+    use_for: {role_families: [analyst_backup], title: "business analyst"}
+    text: "Business analyst with 4+ years of experience. Turns requirements from business teams into specs, reports and dashboards."
+
+# Bullets describing the same work: a tailored resume may use at most one from each group.
+same_work_groups:
+  - [exp_northwind_b03, proj_job_agent_b02]
+
+metrics: []
+
+skills:
+  - {id: sk_python, name: Python}
+  - {id: sk_sql, name: SQL, aliases: [Structured Query Language]}
+  - {id: sk_sklearn, name: scikit-learn}
+  - {id: sk_openai, name: OpenAI API}
+  - {id: sk_anthropic, name: Anthropic API}
+  - {id: sk_langchain, name: LangChain}
+  - {id: sk_faiss, name: FAISS, covers: [vector database]}
+  - {id: sk_rag, name: RAG, aliases: [retrieval-augmented generation]}
+  - {id: sk_llm_eval, name: LLM evaluation}
+  - {id: sk_tableau, name: Tableau}
+  - {id: sk_excel, name: Excel}
+  - {id: sk_sqlite, name: SQLite}
+  - {id: sk_playwright, name: Playwright}
+  - {id: sk_requirements, name: Requirements gathering}
+
+education:
+  - id: edu_ms
+    institution: Example State University
+    location: {value: "Springfield, USA"}
+    degree: {value: "M.S. Data Science"}
+    dates: {start: {value: "2023-01"}, end: {value: "2024-12"}}
+    gpa: {value: "3.8"}
+    coursework:
+      core:
+        - {id: cw_ml, code: DS501, name: Machine Learning}
+        - {id: cw_nlp, code: DS510, name: Natural Language Processing}
+        - {id: cw_db, code: DS520, name: Database Systems}
+        - {id: cw_stats, code: DS530, name: Statistical Inference}
+        - {id: cw_viz, code: DS540, name: Data Visualization}
+      electives:
+        - {id: cw_dl, code: DS610, name: Deep Learning}
+        - {id: cw_cloud, code: DS620, name: Cloud Computing}
+
+conflicts: []
+missing: []

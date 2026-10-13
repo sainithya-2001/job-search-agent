@@ -34,7 +34,7 @@ _NON_US = re.compile(
     r"germany|berlin|munich|france|paris|netherlands|amsterdam|spain|madrid|barcelona|switzerland|zurich|"
     r"poland|warsaw|sweden|stockholm|denmark|italy|portugal|lisbon|india|bangalore|bengaluru|hyderabad|pune|"
     r"singapore|japan|tokyo|korea|seoul|china|australia|sydney|melbourne|brazil|são paulo|sao paulo|mexico|"
-    r"argentina|colombia|israel|tel aviv|emea|apac|latam|europe|asia|uae|dubai|serbia|belgrade|romania|czech|"
+    r"argentina|colombia|israel|tel aviv|emea|apac|latam|mena|europe|asia|uae|dubai|serbia|belgrade|romania|czech|"
     r"estonia|taiwan|malaysia|delhi|british columbia|alberta|eu)\b", re.I)
 _REMOTE = re.compile(r"\b(remote|anywhere|distributed|work from home)\b", re.I)
 # Posting text that makes a bare "Remote" location US-remote.

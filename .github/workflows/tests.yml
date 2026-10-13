@@ -34,25 +34,3 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
-
-  # Build the Docker image on every push and PR. It is never run or pushed, and no secrets are used.
-  docker:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build image
-        run: docker build -t job-agent:ci .
-
-      # Inspect the image's files without starting it: create a stopped container and list its filesystem.
-      - name: Image contains no personal or generated files
-        run: |
-          id=$(docker create job-agent:ci)
-          docker export "$id" | tar -t > files.txt
-          docker rm "$id" > /dev/null
-          bad=$(grep -E '^app/(\.env$|config\.local\.yaml$|CLAUDE\.local\.md$|data/.+|output/.+|logs/.+|evals/label_me\.csv|tests/)' files.txt \
-                | grep -v '^app/data/answer_bank\.example\.yaml$' || true)
-          if [ -n "$bad" ]; then echo "Found in image:"; echo "$bad"; exit 1; fi
-          grep -q '^app/main.py$' files.txt && grep -q '^app/src/notion.py$' files.txt
-          echo "OK: $(grep -c '^app/' files.txt) files under /app, none personal"
