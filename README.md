@@ -290,18 +290,10 @@ job-agent/
 
 ## How this was built
 
-I designed the architecture, the guardrails and the evaluation, and wrote the spec ([`CLAUDE.md`](CLAUDE.md))
-that drove the build phase by phase. Each phase had to run end to end before the next one started. I built it
-with [Claude Code](https://claude.com/claude-code) as an AI pair programmer: it wrote most of the code and tests
-against the spec. I reviewed every phase's output and made the design calls:
-- review mode only, with no submit code;
-- citations instead of trusting the model;
-- exact-match answers only;
-- cost caps enforced in code;
-- plain httpx instead of a Notion SDK;
-- thresholds moved only when the eval supported it.
-
-I also labeled the eval set by hand.
+I designed the system: the architecture, guardrails, evaluation method, and every threshold change. I wrote the
+phase-by-phase spec in [CLAUDE.md](CLAUDE.md) and used [Claude Code](https://claude.com/claude-code) to implement
+it, reviewing each phase before the next began. I hand-labeled the eval set and made the trade-off calls:
+review-only applying, citation verification, exact-match answers, and cost caps enforced in code.
 
 ## Limitations and next steps
 
