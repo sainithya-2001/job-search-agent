@@ -69,6 +69,7 @@ def view_model(tr: TailoredResume, master: dict, summary: str, wording: dict[str
                         "dates": _dates(exp[s.id].get("dates")), "bullets": [b.text for b in s.bullets]}
                        for s in tr.experience if s.id in exp and s.bullets],
         "projects": [{"name": _v(proj[s.id]["name"]), "tech": ", ".join(t["name"] for t in proj[s.id].get("tech", [])),
+                      "link": _v(proj[s.id].get("link")),
                       "bullets": [b.text for b in s.bullets]} for s in tr.projects if s.id in proj and s.bullets],
         "skill_groups": [{"label": g.label, "skills": [skills[i] for i in g.skill_ids if i in skills]}
                          for g in tr.skill_groups],

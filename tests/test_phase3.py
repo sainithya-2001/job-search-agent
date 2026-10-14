@@ -228,3 +228,11 @@ def test_render_uses_master_facts_and_given_summary():
     assert "Data Analyst" in html and "Business Analyst" in html and "Jan 2024 – Present" in html
     assert "Course 0" in html and "Course 5" not in html          # only the chosen coursework
     assert "t@example.com" in html and "Approved summary text." in html
+    assert 'class="link"' not in html                              # no project link in MASTER
+
+
+def test_render_shows_project_link_when_set():
+    master = copy.deepcopy(MASTER)
+    master["projects"][0]["link"] = {"value": "https://github.com/example/text-to-sql"}
+    html = render_html(good(), master, "Approved summary text.")
+    assert '<a class="link" href="https://github.com/example/text-to-sql">github.com/example/text-to-sql</a>' in html
