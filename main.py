@@ -572,7 +572,35 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(func=cmd_notion_sync)
 
     args = parser.parse_args(argv)
-    args.func(args)
+    if _spends_llm(args):
+        _traced(args)
+    else:
+        args.func(args)
+
+
+def _spends_llm(args) -> bool:
+    """Commands that make LLM calls get one Langfuse trace each (dry runs and read-only modes make none)."""
+    if args.command == "run":
+        return not args.dry_run
+    if args.command == "keywords":
+        return args.run
+    return args.command in ("score", "tailor")
+
+
+def _traced(args) -> None:
+    """Run the command inside one trace. Tracing is optional (off without the three LANGFUSE_* settings) and never
+    fails the command: src/tracing.py swallows every Langfuse error. Only ids and metadata are sent."""
+    from src import tracing
+    from src.llm import load_env
+    load_env(ROOT / ".env")
+    tracer = tracing.configure()
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    try:
+        with tracer.run(f"job-agent {args.command}", command=args.command, run_id=run_id) as root:
+            args.func(args)
+            root.set(ok=True)
+    finally:
+        tracer.flush()
 
 
 if __name__ == "__main__":

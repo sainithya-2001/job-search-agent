@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml)
 [![docker](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml/badge.svg)](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml)
-![396 tests](https://img.shields.io/badge/tests-396-blue)
+![423 tests](https://img.shields.io/badge/tests-423-blue)
 ![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
 
 Every weekday morning this agent pulls about 8,000 postings from 119 company job boards, throws out the 99% that
@@ -194,7 +194,7 @@ From the first scheduled runs (October 2026):
 | Cost per run, with 1–2 tailored resumes | $0.12–$0.19 (cap: $0.50) |
 | Scoring cost | ~$0.003–$0.007 per job (Haiku, Sonnet on 45+) |
 | Tailoring cost | ~$0.05–$0.09 per verified one-page resume |
-| Tests | 396 (pytest; no network, no API keys) |
+| Tests | 423 (pytest; no network, no API keys) |
 | CI | [tests](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml) and [docker](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml) on every push and PR |
 
 ## Quickstart
@@ -215,7 +215,7 @@ cp config.local.example.yaml config.local.yaml               # tailoring rules f
 cp data/master_resume.example.yaml data/master_resume.yaml   # fictional candidate "Alex Example"
 cp data/answer_bank.example.yaml data/answer_bank.yaml       # form answers (used by queue/review)
 
-python -m pytest -q             # 396 tests, no keys needed
+python -m pytest -q             # 423 tests, no keys needed
 python main.py search           # fetch + filter + save; public board APIs, no keys needed
 python main.py run --dry-run    # plan and cost estimate: no LLM calls, no database writes (key must be set)
 python main.py run              # full daily cycle (never applies); writes output/digest_YYYY-MM-DD.md
@@ -287,6 +287,45 @@ to the script, so no working directory is needed.
 
 **Claude Code:** `claude mcp add job-search-agent -- /path/to/.venv/bin/python /path/to/src/mcp_server.py`
 
+## Tracing (optional, Langfuse)
+
+Every LLM call made through `src/llm.py` is traced to [Langfuse](https://langfuse.com) when its keys are set:
+
+- **One trace per run** of `run`, `score`, `tailor` and `keywords --run`. Dry runs and read-only commands make no
+  LLM calls and no trace.
+- **Spans:**
+  - `scoring` per job: fit and fast scores, whether it escalated, role family, cost.
+  - `keyword_extraction` per job: only when not cached.
+  - `tailoring` per job: final status, attempts, removed bullets, cost.
+  - `verification` per check: passed, issue count and issue categories, whether the LLM judge ran, how many items
+    it rejected.
+- **A generation for each LLM call:** model, tier, schema name, input and output tokens, cost from
+  `config.yaml llm.pricing`, latency, retries and errors. The agent loop's model turns are traced too.
+
+**Only ids and metadata are sent.**
+- Observations are created without `input` or `output`, so no prompt, completion, job description, resume text or
+  contact detail is ever passed.
+- Metadata goes through an allowlist of keys (`src/tracing.py: ALLOWED_KEYS`).
+- Verifier issues are reduced to fixed categories (`number`, `tool`, `citation`, ...), because their text can quote
+  resume content.
+- The client is also built with a `mask` that blanks any input or output.
+- `tests/test_tracing.py` plants a marker string in the job description, the prompt and the model's output, and
+  checks it never reaches the client.
+
+**Optional and never fatal.**
+- Tracing is off unless `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_HOST` are all in `.env`.
+- Every Langfuse call is wrapped: an error turns tracing off for the rest of the run, with one warning.
+- Export runs in the SDK's background thread, so an unreachable host or bad keys cost about a second at the end of
+  the run, not a failure. This is tested against a closed local port.
+- Tests never send traces, even when `.env` has keys.
+
+```bash
+# .env
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://us.cloud.langfuse.com    # or https://cloud.langfuse.com (EU), or your self-hosted URL
+```
+
 ## Tech stack
 
 - **Python 3.11**, httpx, pydantic (structured models), SQLite (`sqlite3`), PyYAML.
@@ -296,6 +335,7 @@ to the script, so no working directory is needed.
   pre-filling.
 - **Notion API** over plain httpx (no SDK).
 - **MCP Python SDK** (`mcp`) for the read-only MCP server.
+- **Langfuse** (optional) for run traces: ids and metadata only.
 - **pytest; GitHub Actions; Docker** (`python:3.11-slim`).
 
 ## Project structure
@@ -327,9 +367,10 @@ job-agent/
     apply.py               # queue, review, confirm, status
     notion.py, backup.py   # Notion sync; dated jobs.db backups
     mcp_server.py          # MCP server: read-only tools for Claude Desktop / Claude Code
+    tracing.py             # optional Langfuse tracing: ids and metadata only, never fails a run
   templates/resume.html.j2
   evals/                   # run_evals.py, label.py, label_me.csv, results.md
-  tests/                   # 396 tests, fictional fixtures
+  tests/                   # 423 tests, fictional fixtures
   .github/workflows/       # tests.yml, docker.yml
   Dockerfile
 ```
@@ -357,7 +398,7 @@ review-only applying, citation verification, exact-match answers, and cost caps 
 **Next steps**
 - **MCP actions behind confirmation.** The MCP server is read-only today. A next step is letting a client queue a
   job for tailoring, with the same cost caps and a human confirmation on every call.
-- **Langfuse tracing.** Replace the JSONL tool-call logs with traces per run: prompts, tokens, cost, latency and
-  verifier outcomes. That would make prompt changes comparable over time.
+- **Compare prompt versions in Langfuse.** Tag traces with the scoring-prompt version and the eval results, so a
+  prompt change shows up as a before/after on cost, escalation rate and verifier rejections.
 - **Bigger eval set.** Label more jobs and re-run the eval on every scoring-prompt change. Add an eval for the
   tailoring verifier itself (seeded bad drafts it must reject).

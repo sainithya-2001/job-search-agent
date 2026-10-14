@@ -39,6 +39,7 @@ Companies: prioritize startups and lesser-known strong AI companies (Series A–
 - Notion API via plain httpx (application log; no Notion SDK, chosen 2026-10-12), key NOTION_TOKEN + NOTION_PARENT_PAGE_ID in .env. Replaced Google Sheets / gspread (2026-10-12).
 - playwright (form pre-fill, review mode only)
 - mcp (official MCP Python SDK, pinned 2.3.0; added 2026-10-14): src/mcp_server.py only
+- langfuse (official SDK, pinned 4.17.0; added 2026-10-14): src/tracing.py only, optional tracing
 - pytest (tests)
 - Config in config.yaml; secrets in .env (never committed; add to .gitignore). Personal settings (rules naming master-resume ids, the work-authorization sentence for the scoring prompt) go in config.local.yaml (gitignored, deep-merged over config.yaml by main.load_config; template config.local.example.yaml); personal notes in CLAUDE.local.md (gitignored). Tests ignore config.local.yaml.
 
@@ -75,6 +76,7 @@ job-agent/
     agent.py             # tool-use loop wiring the above as tools
     digest.py            # daily digest (Tier A / Tier B) after each run
     mcp_server.py        # MCP server: read-only tools (digest, ranked jobs, job, applications, dry-run search)
+    tracing.py           # optional Langfuse tracing (ids and metadata only)
   templates/resume.html.j2
   output/resumes/
   evals/
@@ -142,6 +144,7 @@ job-agent/
 - Local schedule (done 2026-10-12): Windows Task Scheduler task "JobAgentDaily" runs run_daily.ps1 (`main.py run` with .venv Python) weekdays 8:00 AM as Nithya (interactive logon), runs as soon as possible after a missed start, 1-hour limit; output in logs\scheduled_*.log. `run_daily.ps1 -DryRun` checks the setup at no cost.
 - README: architecture diagram, eval results, demo GIF.
 - MCP server (done 2026-10-14): src/mcp_server.py, stdio, tools get_digest(date), list_ranked_jobs(limit), get_job(job_id), get_application_status(), run_search_dry_run(). Read-only by construction: jobs.db opened with SQLite mode=ro (Store.read_only), .env never loaded, no tool calls the LLM, tailoring, forms or apply code, and the dry run uses save=False (no writes, never JSearch). tests/test_mcp_server.py makes every spending/acting entry point raise and checks the database bytes are unchanged.
+- Langfuse tracing (done 2026-10-14): src/tracing.py, hooked into LLMProvider.generate_json/chat (a generation per call) with spans scoring / keyword_extraction / tailoring / verification, one trace per `run`, `score`, `tailor`, `keywords --run` (main._traced). Only ids and metadata: no input/output on any observation, metadata allowlist (ALLOWED_KEYS), verifier issues as fixed categories (issue_kind), client mask blanks input/output. Optional (LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST in .env) and never fatal (errors disable tracing for the run). Tests set JOB_AGENT_NO_TRACING=1 (tests/conftest.py).
 
 ## Rules for Claude Code
 - Small commits per phase with clear messages.

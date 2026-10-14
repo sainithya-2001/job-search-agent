@@ -103,21 +103,34 @@ class LLMProvider(ABC):
         self.max_attempts = retry.get("max_attempts", 5)
         self.base_delay = retry.get("base_delay", 2.0)
         self.max_delay = retry.get("max_delay", 60.0)
+        self.pricing: dict = {}       # config.yaml llm.pricing, set by get_llm (cost for tracing)
 
     def generate_json(self, prompt: str, schema: type[T], *, tier: Tier = "fast",
                       system: str | None = None) -> LLMResponse[T]:
         """Ask the model for output matching `schema`; returns it parsed and validated."""
+        from src import tracing
         model = self.models[tier]
-        (data, in_tok, out_tok), latency, attempts = self._with_retry(
-            model, lambda: self._call(model, tier, prompt, schema, system))
+        # Traced with metadata only (model, tier, schema name, tokens, cost, latency): never the prompt or output.
+        with tracing.get().generation(f"llm.{schema.__name__}", model=model, tier=tier, schema=schema.__name__) as g:
+            (data, in_tok, out_tok), latency, attempts = self._with_retry(
+                model, lambda: self._call(model, tier, prompt, schema, system))
+            g.set(**self._usage(model, in_tok, out_tok, latency, attempts))
         return LLMResponse(data, model, in_tok, out_tok, latency, attempts)
+
+    def _usage(self, model: str, in_tok: int, out_tok: int, latency: float, attempts: int) -> dict:
+        return {"input_tokens": in_tok, "output_tokens": out_tok, "cost_usd": cost_usd(model, in_tok, out_tok, getattr(self, "pricing", {})),
+                "latency_s": round(latency, 3), "attempts": attempts, "ok": True}
 
     def chat(self, messages: list[dict], tools: list[ToolSpec], *, tier: Tier = "fast",
              system: str | None = None) -> ChatResponse:
         """One turn of a tool-use conversation. `messages` use the provider-neutral format described at
         ChatResponse; each provider translates it to its own wire format. Same retry policy as generate_json."""
+        from src import tracing
         model = self.models[tier]
-        resp, latency, attempts = self._with_retry(model, lambda: self._chat(model, tier, messages, tools, system))
+        with tracing.get().generation("llm.chat", model=model, tier=tier, tools=[t.name for t in tools]) as g:
+            resp, latency, attempts = self._with_retry(model, lambda: self._chat(model, tier, messages, tools, system))
+            g.set(**self._usage(model, resp.input_tokens, resp.output_tokens, latency, attempts),
+                  tool_calls=[c.name for c in resp.tool_calls], stop_reason=resp.stop_reason)
         resp.latency_s, resp.attempts = latency, attempts
         return resp
 
@@ -339,4 +352,6 @@ def get_llm(cfg: dict) -> LLMProvider:
     if name not in PROVIDERS:
         raise LLMError(f"Unknown llm.provider {name!r}; choose one of {sorted(PROVIDERS)}")
     load_env()
-    return PROVIDERS[name](llm_cfg["models"][name], llm_cfg.get("retry"))
+    provider = PROVIDERS[name](llm_cfg["models"][name], llm_cfg.get("retry"))
+    provider.pricing = llm_cfg.get("pricing", {})
+    return provider

@@ -8,6 +8,7 @@ wrong order) fail the job. The summary is not drafted here: it's a pre-approved 
 import json
 from dataclasses import dataclass, field
 
+from src import tracing
 from src.llm import LLMProvider, cost_usd
 from src.models import TailoredResume
 from src.verify import VerificationResult, Verifier
@@ -120,6 +121,24 @@ def _remove_failing(tr: TailoredResume, res: VerificationResult, verifier: Verif
 
 def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, llm: LLMProvider, cfg: dict,
                budget_left: float, coverage=None) -> TailorResult:
+    """Draft, verify, retry with feedback; traced as one "tailoring" span with a "verification" span per check."""
+    with tracing.get().span("tailoring", job_id=job["id"], role_family=verifier.family) as span:
+        out = _tailor_job(job, score_row, master, source, verifier, llm, cfg, budget_left, coverage)
+        span.set(status=out.status, attempts=out.attempts, calls=out.calls, cost_usd=out.cost,
+                 removed=len(out.removed), ok=out.status.startswith("PASS"))
+        return out
+
+
+def _verification_meta(res: VerificationResult) -> dict:
+    """Verifier outcome as counts and fixed issue categories: never the issue text, which can quote resume content."""
+    return {"passed": res.passed, "issue_count": len(res.issues),
+            "issue_kinds": sorted({tracing.issue_kind(i.problem) for i in res.issues}), "items": len(res.checked),
+            "llm_checked": res.llm_response is not None,
+            "llm_unsupported": sum(c.llm_supported is False for c in res.checked), "ok": True}
+
+
+def _tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, llm: LLMProvider, cfg: dict,
+                budget_left: float, coverage=None) -> TailorResult:
     tcfg, pricing = cfg["tailoring"], cfg["llm"].get("pricing", {})
     tier = tcfg.get("tier", "strong")
     out = TailorResult(None, VerificationResult(), 0)
@@ -140,10 +159,12 @@ def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, ll
                                   TailoredResume, tier=tier, system=SYSTEM)
         spend(draft)
         tr = draft.data
-        res = verifier.check_structure(tr)
-        if res.passed:                           # only spend an LLM-judge call on drafts that pass the string checks
-            verifier.check_with_llm(res, llm, tier)
-            spend(res.llm_response)
+        with tracing.get().span("verification", job_id=job["id"], attempt=attempt) as vspan:
+            res = verifier.check_structure(tr)
+            if res.passed:                       # only spend an LLM-judge call on drafts that pass the string checks
+                verifier.check_with_llm(res, llm, tier)
+                spend(res.llm_response)
+            vspan.set(**_verification_meta(res))
         out.resume, out.verification = tr, res
         out.attempt_issues.append([str(i) for i in res.issues])
         if res.passed:
@@ -155,15 +176,17 @@ def tailor_job(job, score_row, master: dict, source: str, verifier: Verifier, ll
     # (which may not have run on a draft that failed the string checks); anything the judge flags is removed too.
     if out.resume is not None:
         out.removed = _remove_failing(out.resume, out.verification, verifier)
-        recheck = verifier.check_structure(out.resume)
-        if recheck.passed and out.cost < budget_left:
-            verifier.check_with_llm(recheck, llm, tier)
-            spend(recheck.llm_response)
-            if not recheck.passed:
-                out.removed += _remove_failing(out.resume, recheck, verifier)
-                judged = recheck
-                recheck = verifier.check_structure(out.resume)
-                _carry_verdicts(judged, recheck)
+        with tracing.get().span("verification", job_id=job["id"], attempt="final") as vspan:
+            recheck = verifier.check_structure(out.resume)
+            if recheck.passed and out.cost < budget_left:
+                verifier.check_with_llm(recheck, llm, tier)
+                spend(recheck.llm_response)
+                if not recheck.passed:
+                    out.removed += _remove_failing(out.resume, recheck, verifier)
+                    judged = recheck
+                    recheck = verifier.check_structure(out.resume)
+                    _carry_verdicts(judged, recheck)
+            vspan.set(**_verification_meta(recheck), removed=len(out.removed))
         out.verification = recheck
         # PASS only if every remaining item passed the string checks AND was judged supported by the LLM.
         judged_ok = all(c.llm_supported is True for c in recheck.checked)

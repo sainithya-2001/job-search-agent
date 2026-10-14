@@ -14,3 +14,6 @@ playwright==1.63.0   # resume PDF via headless Chromium (after: playwright insta
 
 # MCP server (src/mcp_server.py): read-only tools for Claude Desktop / Claude Code
 mcp==2.3.0
+
+# Optional tracing (src/tracing.py): off unless the LANGFUSE_* keys are set
+langfuse==4.17.0

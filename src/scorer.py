@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from src import tracing
 from src.llm import LLMProvider, cost_usd, estimate_tokens
 from src.models import ScoredJob
 from src.sponsorship import SponsorshipDB
@@ -331,17 +332,21 @@ def score_jobs(jobs, system: str, llm: LLMProvider, cfg: dict, store, sponsor_db
             res.stopped_early = f"budget cap ${cap:.2f} reached before job {i + 1}"
             break
         prompt = job_prompt(job)
-        fast = llm.generate_json(prompt, ScoredJob, tier="fast", system=system)
-        worst_seen["fast"] = max(worst_seen["fast"], call_cost(fast))
-        calls, final = [fast], fast
-        if fast.data.fit_score >= threshold:
-            projected = max(2 * est.strong_cost_each[i], worst_seen["strong"])
-            if res.spent + call_cost(fast) + projected > cap:
-                res.stopped_early = f"budget cap ${cap:.2f}: kept fast-tier score for job {i + 1}, stopped after it"
-            else:
-                final = llm.generate_json(prompt, ScoredJob, tier="strong", system=system)
-                worst_seen["strong"] = max(worst_seen["strong"], call_cost(final))
-                calls.append(final)
+        with tracing.get().span("scoring", job_id=job["id"]) as span:
+            fast = llm.generate_json(prompt, ScoredJob, tier="fast", system=system)
+            worst_seen["fast"] = max(worst_seen["fast"], call_cost(fast))
+            calls, final = [fast], fast
+            if fast.data.fit_score >= threshold:
+                projected = max(2 * est.strong_cost_each[i], worst_seen["strong"])
+                if res.spent + call_cost(fast) + projected > cap:
+                    res.stopped_early = f"budget cap ${cap:.2f}: kept fast-tier score for job {i + 1}, stopped after it"
+                else:
+                    final = llm.generate_json(prompt, ScoredJob, tier="strong", system=system)
+                    worst_seen["strong"] = max(worst_seen["strong"], call_cost(final))
+                    calls.append(final)
+            span.set(fit_score=final.data.fit_score, fast_score=fast.data.fit_score, escalated=final is not fast,
+                     role_family=final.data.role_family, model=final.model, calls=len(calls),
+                     cost_usd=sum(call_cost(c) for c in calls), ok=True)
         job_cost = sum(call_cost(c) for c in calls)
         res.spent += job_cost
         res.calls += len(calls)

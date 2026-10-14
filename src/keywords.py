@@ -22,6 +22,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src import tracing
+
 EXTRACT_SYSTEM = """You extract ATS keywords from ONE job posting.
 Return the 15-20 most important keywords and phrases a resume-screening system would look for: skills, tools,
 technologies, methods, and domain terms. Rules:
@@ -76,7 +78,9 @@ def get_keywords(store, job, llm, tier: str = "fast") -> tuple[list[Keyword], ob
     hit = cached(store, job["id"])
     if hit is not None:
         return hit, None
-    resp = llm.generate_json(extract_prompt(job), KeywordList, tier=tier, system=EXTRACT_SYSTEM)
+    with tracing.get().span("keyword_extraction", job_id=job["id"]) as span:
+        resp = llm.generate_json(extract_prompt(job), KeywordList, tier=tier, system=EXTRACT_SYSTEM)
+        span.set(keywords=min(len(resp.data.keywords), 20), model=resp.model, ok=True)
     seen, kws = set(), []
     for k in sorted(resp.data.keywords, key=lambda k: -k.importance):
         if norm(k.text) and norm(k.text) not in seen:
