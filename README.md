@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml)
 [![docker](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml/badge.svg)](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml)
-![423 tests](https://img.shields.io/badge/tests-423-blue)
+![424 tests](https://img.shields.io/badge/tests-424-blue)
 ![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
 
 Every weekday morning this agent pulls about 8,000 postings from 119 company job boards, throws out the 99% that
@@ -194,7 +194,7 @@ From the first scheduled runs (October 2026):
 | Cost per run, with 1–2 tailored resumes | $0.12–$0.19 (cap: $0.50) |
 | Scoring cost | ~$0.003–$0.007 per job (Haiku, Sonnet on 45+) |
 | Tailoring cost | ~$0.05–$0.09 per verified one-page resume |
-| Tests | 423 (pytest; no network, no API keys) |
+| Tests | 424 (pytest; no network, no API keys) |
 | CI | [tests](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml) and [docker](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml) on every push and PR |
 
 ## Quickstart
@@ -215,7 +215,7 @@ cp config.local.example.yaml config.local.yaml               # tailoring rules f
 cp data/master_resume.example.yaml data/master_resume.yaml   # fictional candidate "Alex Example"
 cp data/answer_bank.example.yaml data/answer_bank.yaml       # form answers (used by queue/review)
 
-python -m pytest -q             # 423 tests, no keys needed
+python -m pytest -q             # 424 tests, no keys needed
 python main.py search           # fetch + filter + save; public board APIs, no keys needed
 python main.py run --dry-run    # plan and cost estimate: no LLM calls, no database writes (key must be set)
 python main.py run              # full daily cycle (never applies); writes output/digest_YYYY-MM-DD.md
@@ -308,9 +308,11 @@ Every LLM call made through `src/llm.py` is traced to [Langfuse](https://langfus
 - Metadata goes through an allowlist of keys (`src/tracing.py: ALLOWED_KEYS`).
 - Verifier issues are reduced to fixed categories (`number`, `tool`, `citation`, ...), because their text can quote
   resume content.
-- The client is also built with a `mask` that blanks any input or output.
+- The client is also built with a `mask`. The SDK runs it on input, output and metadata, so it keeps only
+  allowlisted metadata and blanks anything else, such as a stray prompt string.
 - `tests/test_tracing.py` plants a marker string in the job description, the prompt and the model's output, and
-  checks it never reaches the client.
+  checks it never reaches the client. It also checks the spans the real SDK would export, using an in-memory
+  exporter.
 
 **Optional and never fatal.**
 - Tracing is off unless `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_HOST` are all in `.env`.
@@ -370,7 +372,7 @@ job-agent/
     tracing.py             # optional Langfuse tracing: ids and metadata only, never fails a run
   templates/resume.html.j2
   evals/                   # run_evals.py, label.py, label_me.csv, results.md
-  tests/                   # 423 tests, fictional fixtures
+  tests/                   # 424 tests, fictional fixtures
   .github/workflows/       # tests.yml, docker.yml
   Dockerfile
 ```

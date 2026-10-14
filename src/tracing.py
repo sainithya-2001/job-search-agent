@@ -69,7 +69,13 @@ def _clean(meta: dict) -> dict:
 
 
 def _mask(*, data, **kwargs):
-    """Installed as the client's mask: input/output must never carry content; blank whatever arrives."""
+    """Installed as the client's mask. The SDK applies it to input, output AND metadata, with no hint which one it
+    is, so it can't simply blank everything (that erased the metadata on the first live run). It keeps only what
+    `_clean` allows (our metadata passes unchanged) and blanks anything else: a prompt or completion string, a
+    list, or a dict of content keys."""
+    if isinstance(data, dict):
+        cleaned = _clean(data)
+        return cleaned or None
     return None
 
 

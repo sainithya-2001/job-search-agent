@@ -149,6 +149,44 @@ def test_metadata_allowlist_and_truncation():
     assert out == {"job_id": "greenhouse:acme:1", "fit_score": 66, "status": "x" * tracing.MAX_STR,
                    "issue_kinds": ["number", "tool"]}
     assert tracing._mask(data=SECRET) is None
+    assert tracing._mask(data=[SECRET]) is None
+    assert tracing._mask(data={"prompt": SECRET, "text": SECRET}) is None
+    assert tracing._mask(data={"job_id": "j1", "fit_score": 66}) == {"job_id": "j1", "fit_score": 66}
+
+
+def test_real_sdk_exports_metadata_but_never_content():
+    """The real Langfuse SDK with an in-memory exporter: what would actually go over the wire."""
+    pytest.importorskip("langfuse")
+    from langfuse import Langfuse
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    exporter = InMemorySpanExporter()
+    client = Langfuse(public_key="pk-test", secret_key="sk-test", host="http://127.0.0.1:9", mask=tracing._mask,
+                      span_exporter=exporter, tracing_enabled=True)
+    tracer = tracing.configure(env=KEYS, client_factory=lambda *a: client)
+    try:
+        llm = Provider({"ScoredJob": lambda p, tier: scored(61)})
+        with tracer.run("job-agent score", command="score", run_id="r9"):
+            with tracer.span("scoring", job_id="greenhouse:acme:9") as s:
+                llm.generate_json(f"job description {SECRET}", ScoredJob, system=f"profile {SECRET}")
+                s.set(fit_score=61, ok=True)
+            # even a careless direct call with content is blanked by the mask
+            tracer.client.start_observation(name="careless", input=SECRET, output={"text": SECRET}).end()
+        client.flush()
+        spans = exporter.get_finished_spans()
+        attrs = {sp.name: dict(sp.attributes or {}) for sp in spans}
+        assert {"job-agent score", "scoring", "llm.ScoredJob", "careless"} <= set(attrs)
+        assert attrs["scoring"]["langfuse.observation.metadata.job_id"] == "greenhouse:acme:9"
+        assert str(attrs["scoring"]["langfuse.observation.metadata.fit_score"]) == "61"
+        gen = attrs["llm.ScoredJob"]
+        assert gen["langfuse.observation.model.name"] == "claude-haiku-5-5"
+        assert "langfuse.observation.usage_details" in gen and "langfuse.observation.cost_details" in gen
+        wire = json.dumps(attrs, default=str)
+        assert SECRET not in wire
+        assert not any(k.endswith((".input", ".output")) and v not in (None, "null")
+                       for a in attrs.values() for k, v in a.items())
+    finally:
+        client.shutdown()
+        tracing.reset()
 
 
 @pytest.mark.parametrize("problem,kind", [   # real messages from src/verify.py
