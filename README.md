@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml)
 [![docker](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml/badge.svg)](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml)
-![385 tests](https://img.shields.io/badge/tests-385-blue)
+![396 tests](https://img.shields.io/badge/tests-396-blue)
 ![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
 
 Every weekday morning this agent pulls about 8,000 postings from 119 company job boards, throws out the 99% that
@@ -46,6 +46,9 @@ A plain tool-use loop (`src/agent.py`, no framework) drives the daily cycle: Cla
 `score_jobs`, `tailor_resume` and `log_application`. Every limit (cost, tool calls, thresholds, failures) is
 enforced in code, not in the prompt. All model calls go through one provider interface (`src/llm.py`), so
 switching between Claude and Gemini is one line in `config.yaml`.
+
+[`ARCHITECTURE.md`](ARCHITECTURE.md) follows one real job through every step, naming the file and function, the
+design decision and the alternative rejected.
 
 ## How each phase works
 
@@ -191,7 +194,7 @@ From the first scheduled runs (October 2026):
 | Cost per run, with 1–2 tailored resumes | $0.12–$0.19 (cap: $0.50) |
 | Scoring cost | ~$0.003–$0.007 per job (Haiku, Sonnet on 45+) |
 | Tailoring cost | ~$0.05–$0.09 per verified one-page resume |
-| Tests | 385 (pytest; no network, no API keys) |
+| Tests | 396 (pytest; no network, no API keys) |
 | CI | [tests](https://github.com/sainithya-2001/job-search-agent/actions/workflows/tests.yml) and [docker](https://github.com/sainithya-2001/job-search-agent/actions/workflows/docker.yml) on every push and PR |
 
 ## Quickstart
@@ -212,7 +215,7 @@ cp config.local.example.yaml config.local.yaml               # tailoring rules f
 cp data/master_resume.example.yaml data/master_resume.yaml   # fictional candidate "Alex Example"
 cp data/answer_bank.example.yaml data/answer_bank.yaml       # form answers (used by queue/review)
 
-python -m pytest -q             # 385 tests, no keys needed
+python -m pytest -q             # 396 tests, no keys needed
 python main.py search           # fetch + filter + save; public board APIs, no keys needed
 python main.py run --dry-run    # plan and cost estimate: no LLM calls, no database writes (key must be set)
 python main.py run              # full daily cycle (never applies); writes output/digest_YYYY-MM-DD.md
@@ -243,6 +246,47 @@ docker run --rm --env-file .env \
   job-agent run --dry-run
 ```
 
+## MCP server
+
+`src/mcp_server.py` exposes the pipeline's state to any MCP client (Claude Desktop, Claude Code) over stdio, so you
+can ask "what did today's run find?" or "what's the status of my applications?" in a chat.
+
+| Tool | What it returns |
+|---|---|
+| `get_digest(date)` | The daily digest for `YYYY-MM-DD` (default: the latest); built in memory if that day has no file |
+| `list_ranked_jobs(limit)` | Scored jobs in the pipeline's ranking order (closed, applied, skipped and stale left out); 1–50 |
+| `get_job(job_id)` | The posting, its score and reasoning, the application row, and the review-queue summary |
+| `get_application_status()` | Every application with its status, plus counts per status |
+| `run_search_dry_run()` | Fetches the boards now and applies the filters: fetched, passed, filtered out by reason, would-be-new |
+
+**Read-only by construction.**
+- `jobs.db` is opened with SQLite `mode=ro`, so any write raises.
+- `.env` is never loaded, so the server process holds no API key to spend.
+- No tool calls the LLM, tailoring, form-filling or apply code.
+- The dry-run search never saves and never calls JSearch.
+- `tests/test_mcp_server.py` makes every one of those entry points raise, calls all five tools, and checks the
+  database bytes are unchanged. Pre-filled form answers are never returned.
+
+**Connect it to Claude Desktop:** Settings → Developer → Edit Config opens `claude_desktop_config.json`. Add the
+server with absolute paths to the venv's Python and the script, then restart Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "job-search-agent": {
+      "command": "C:\\path\\to\\job-search-agent\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\job-search-agent\\src\\mcp_server.py"]
+    }
+  }
+}
+```
+
+On macOS or Linux use `/path/to/job-search-agent/.venv/bin/python` and `/path/to/job-search-agent/src/mcp_server.py`.
+The tools appear under the connectors (tools) menu in a new chat. The server finds `data/` and `output/` relative
+to the script, so no working directory is needed.
+
+**Claude Code:** `claude mcp add job-search-agent -- /path/to/.venv/bin/python /path/to/src/mcp_server.py`
+
 ## Tech stack
 
 - **Python 3.11**, httpx, pydantic (structured models), SQLite (`sqlite3`), PyYAML.
@@ -251,6 +295,7 @@ docker run --rm --env-file .env \
 - **Playwright + headless Chromium:** resume PDFs (Jinja2 HTML template) and application-form reading and
   pre-filling.
 - **Notion API** over plain httpx (no SDK).
+- **MCP Python SDK** (`mcp`) for the read-only MCP server.
 - **pytest; GitHub Actions; Docker** (`python:3.11-slim`).
 
 ## Project structure
@@ -281,9 +326,10 @@ job-agent/
     gates.py               # shadow-mode auto-submit gates (no submit code)
     apply.py               # queue, review, confirm, status
     notion.py, backup.py   # Notion sync; dated jobs.db backups
+    mcp_server.py          # MCP server: read-only tools for Claude Desktop / Claude Code
   templates/resume.html.j2
   evals/                   # run_evals.py, label.py, label_me.csv, results.md
-  tests/                   # 385 tests, fictional fixtures
+  tests/                   # 396 tests, fictional fixtures
   .github/workflows/       # tests.yml, docker.yml
   Dockerfile
 ```
@@ -309,8 +355,8 @@ review-only applying, citation verification, exact-match answers, and cost caps 
   not in CI.
 
 **Next steps**
-- **MCP server.** Expose `search_jobs`, `score_job`, `tailor_resume` and the review queue as MCP tools, so the
-  pipeline can be queried and driven from Claude Desktop or Claude Code ("what did today's run find?").
+- **MCP actions behind confirmation.** The MCP server is read-only today. A next step is letting a client queue a
+  job for tailoring, with the same cost caps and a human confirmation on every call.
 - **Langfuse tracing.** Replace the JSONL tool-call logs with traces per run: prompts, tokens, cost, latency and
   verifier outcomes. That would make prompt changes comparable over time.
 - **Bigger eval set.** Label more jobs and re-run the eval on every scoring-prompt change. Add an eval for the

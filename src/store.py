@@ -171,6 +171,18 @@ class Store:
                 self.conn.execute("ALTER TABLE jobs ADD COLUMN link_check TEXT")
                 self.conn.execute("ALTER TABLE jobs ADD COLUMN link_checked_at TEXT")
 
+    @classmethod
+    def read_only(cls, path: str | Path = "data/jobs.db") -> "Store":
+        """Open an existing database read-only (SQLite mode=ro): any write raises sqlite3.OperationalError.
+        Skips the schema setup and migrations above, which write. Used by the MCP server."""
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"{p} not found: run `python main.py search` first")
+        store = cls.__new__(cls)
+        store.conn = sqlite3.connect(f"{p.resolve().as_uri()}?mode=ro", uri=True)
+        store.conn.row_factory = sqlite3.Row
+        return store
+
     def jobs_by_status(self, status: str) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM jobs WHERE status=?", (status,)).fetchall()
 
